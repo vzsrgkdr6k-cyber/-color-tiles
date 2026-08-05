@@ -140,6 +140,34 @@ button{font:inherit}
 }
 .cell.tile.shapes-off .shape-symbol{display:none}
 
+
+.board-reshuffle{animation:boardReshuffle .5s ease}
+@keyframes boardReshuffle{
+  0%{opacity:1;transform:scale(1)}
+  40%{opacity:.35;transform:scale(.985)}
+  100%{opacity:1;transform:scale(1)}
+}
+.reshuffle-toast{
+  position:absolute;
+  left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  z-index:6;
+  background:var(--panel);
+  border:1px solid var(--line);
+  color:var(--text);
+  border-radius:14px;
+  padding:11px 16px;
+  font-weight:800;
+  box-shadow:var(--shadow);
+  pointer-events:none;
+  animation:reshuffleToast .9s ease forwards;
+}
+@keyframes reshuffleToast{
+  0%{opacity:0;transform:translate(-50%,-45%) scale(.94)}
+  18%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  72%{opacity:1}
+  100%{opacity:0;transform:translate(-50%,-58%) scale(.98)}
+}
 </style>
 </head>
 <body>
@@ -199,6 +227,7 @@ button{font:inherit}
       <label class="small" for="sfxVolume">音效音量</label>
       <input id="sfxVolume" type="range" min="0" max="100" value="55" style="width:100%">
     </div>
+    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊已經沒有任何合法消除方式，系統會自動重整剩餘盤面，確保可以繼續直到清盤。</span></div>
     <div class="notice"><strong>◆ 圖形辨識</strong><br><span class="small">開啟後，每種顏色固定搭配鏤空線框圖形；包含圈、叉、三角、方框等，同色永遠同圖形。</span></div>
     <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
 
@@ -569,22 +598,160 @@ document.addEventListener("DOMContentLoaded", () => {
     return null;
   }
 
-  function resolveMove(r,c){
-    if(!playing || grid[r][c]) return;
 
+  function getRemovalsAt(r,c){
+    if(grid[r][c]) return [];
     const around=[
       nearest(r,c,-1,0), nearest(r,c,1,0),
       nearest(r,c,0,-1), nearest(r,c,0,1)
     ].filter(Boolean);
 
-    const groups = new Map();
+    const groups=new Map();
     around.forEach(x=>{
       if(!groups.has(x.color)) groups.set(x.color,[]);
       groups.get(x.color).push(x);
     });
 
-    const remove = [];
-    for(const arr of groups.values()) if(arr.length>=2) remove.push(...arr);
+    const remove=[];
+    for(const arr of groups.values()){
+      if(arr.length>=2) remove.push(...arr);
+    }
+    return [...new Map(remove.map(x=>[`${x.r},${x.c}`,x])).values()];
+  }
+
+  function hasAnyValidMove(){
+    if(tilesLeft===0) return false;
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        if(grid[r][c]===null && getRemovalsAt(r,c).length>=2){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function occupiedPositions(){
+    const positions=[];
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        if(grid[r][c]) positions.push({r,c});
+      }
+    }
+    return positions;
+  }
+
+  function showReshuffleToast(message="沒有可消除的組合，自動重整盤面"){
+    const old=boardWrap.querySelector(".reshuffle-toast");
+    if(old) old.remove();
+    const toast=document.createElement("div");
+    toast.className="reshuffle-toast";
+    toast.textContent=message;
+    boardWrap.appendChild(toast);
+    boardEl.classList.remove("board-reshuffle");
+    void boardEl.offsetWidth;
+    boardEl.classList.add("board-reshuffle");
+    setTimeout(()=>{
+      toast.remove();
+      boardEl.classList.remove("board-reshuffle");
+    },950);
+  }
+
+  function forcePairableColors(colors){
+    // 如果所有剩餘顏色都只剩 1 顆，單靠移動位置也無法形成同色配對。
+    // 此時重新分配顏色，但維持剩餘方塊總數。
+    if(colors.length<2) return colors;
+
+    const counts=new Map();
+    colors.forEach(c=>counts.set(c,(counts.get(c)||0)+1));
+    if([...counts.values()].some(n=>n>=2)) return colors;
+
+    // 所有顏色都是單顆：把其中兩顆改成同色，確保至少有配對。
+    const fixed=[...colors];
+    fixed[1]=fixed[0];
+    return fixed;
+  }
+
+  function guaranteeEndlessMove(){
+    if(gameMode!=="endless" || !playing || tilesLeft===0) return;
+
+    if(hasAnyValidMove()) return;
+
+    // 如果只剩 1 顆，任何規則下都無法再形成一組；直接視為最後整理完成。
+    if(tilesLeft===1){
+      for(let r=0;r<ROWS;r++){
+        for(let c=0;c<COLS;c++){
+          if(grid[r][c]){
+            grid[r][c]=null;
+            score++;
+            tilesLeft=0;
+            updateCell(r,c);
+            updateHud();
+            showReshuffleToast("最後 1 顆自動整理完成！");
+            setTimeout(()=>finish(true),450);
+            return;
+          }
+        }
+      }
+    }
+
+    const positions=occupiedPositions();
+    let colors=positions.map(p=>grid[p.r][p.c]);
+    colors=forcePairableColors(colors);
+
+    // 先嘗試單純洗牌多次，保留現有色彩數量。
+    for(let attempt=0;attempt<160;attempt++){
+      const shuffledColors=shuffled(colors);
+      positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
+      if(hasAnyValidMove()){
+        render();
+        showReshuffleToast();
+        updateHud();
+        return;
+      }
+    }
+
+    // 若隨機洗牌仍找不到解，建立一個保證有解的局部結構。
+    // 找一個空白格，讓其左右最近方塊為同色。
+    const empties=[];
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        if(grid[r][c]===null) empties.push({r,c});
+      }
+    }
+
+    // 再隨機散佈一次。
+    const shuffledColors=shuffled(colors);
+    positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
+
+    let made=false;
+    outer:
+    for(const e of empties){
+      const left=nearest(e.r,e.c,0,-1);
+      const right=nearest(e.r,e.c,0,1);
+      if(left && right){
+        grid[right.r][right.c]=grid[left.r][left.c];
+        made=true;
+        break outer;
+      }
+      const up=nearest(e.r,e.c,-1,0);
+      const down=nearest(e.r,e.c,1,0);
+      if(up && down){
+        grid[down.r][down.c]=grid[up.r][up.c];
+        made=true;
+        break outer;
+      }
+    }
+
+    render();
+    showReshuffleToast(made ? "死局已重整，可以繼續！" : "盤面已重新整理");
+    updateHud();
+  }
+
+  function resolveMove(r,c){
+    if(!playing || grid[r][c]) return;
+
+    const remove=getRemovalsAt(r,c);
 
     const clicked=boardEl.children[r*COLS+c];
     if(remove.length===0){
@@ -620,7 +787,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       updateHud();
-      if(tilesLeft===0) finish(true);
+      if(tilesLeft===0){
+        finish(true);
+      }else if(gameMode==="endless"){
+        setTimeout(guaranteeEndlessMove,120);
+      }
     },190);
   }
 
@@ -703,7 +874,7 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     const savedName = currentPlayerName || "";
     overlay.querySelector(".dialog").innerHTML = `
       <h2>${gameMode==="timed" ? "120 秒模式" : "無限模式"}</h2>
-      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會消除。${gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯一次會讓通關時間 +10 秒。"}</p>
+      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會消除。${gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯一次會讓通關時間 +10 秒；沒有可消除組合時會自動重整盤面。"}</p>
       <label for="startNickname" style="display:block;text-align:left;font-size:13px;color:var(--muted);margin-top:12px">排行榜暱稱</label>
       <input class="name-input" id="startNickname" maxlength="12" placeholder="輸入暱稱" value="${escapeHtml(savedName)}">
       <button class="btn primary" id="startBtn2" type="button">${gameMode==="timed" ? "開始 120 秒" : "開始無限模式"}</button>
@@ -727,7 +898,7 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     localStorage.setItem("ct-mode",mode);
     timedModeBtn.classList.toggle("active",mode==="timed");
     endlessModeBtn.classList.toggle("active",mode==="endless");
-    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯會讓遊玩時間 +10 秒。";
+    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
     makeBoard();
     buildIntro(true);
   }
@@ -878,7 +1049,7 @@ bgmBtn.addEventListener("click", ()=>{
   updateShapeButton();
   timedModeBtn.classList.toggle("active",gameMode==="timed");
   endlessModeBtn.classList.toggle("active",gameMode==="endless");
-  modeHint.textContent = gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯會讓遊玩時間 +10 秒。";
+  modeHint.textContent = gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
   renderLeaderboard();
   makeBoard();
   buildIntro(true);
