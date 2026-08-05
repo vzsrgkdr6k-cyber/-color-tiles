@@ -292,6 +292,29 @@ button{font:inherit}
   z-index:5;
 }
 
+
+/* ===== 飛行尾氣粒子 ===== */
+.fly-puff{
+  position:fixed;
+  z-index:78;
+  pointer-events:none;
+  border-radius:50%;
+  opacity:.52;
+  animation:puffFade .34s ease-out forwards;
+  will-change:transform,opacity;
+  box-shadow:0 0 5px rgba(255,255,255,.08);
+}
+@keyframes puffFade{
+  0%{
+    opacity:.52;
+    transform:translate(0,0) scale(1);
+  }
+  100%{
+    opacity:0;
+    transform:translate(var(--px),var(--py)) scale(.25);
+  }
+}
+
 </style>
 </head>
 <body>
@@ -926,14 +949,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const tileCX=rect.left+rect.width/2;
     const tileCY=rect.top+rect.height/2;
 
-    // 方向不是從畫面中央算，而是從「玩家點下的空格」指向這顆被消除的方塊。
-    // 因此每顆方塊都會從自己的格子向外飛。
     let vx=tileCX-clickCenter.x;
     let vy=tileCY-clickCenter.y;
     let len=Math.hypot(vx,vy);
 
     if(len<1){
-      // 理論上不會發生；保底給隨機方向。
       const a=Math.random()*Math.PI*2;
       vx=Math.cos(a);
       vy=Math.sin(a);
@@ -943,16 +963,11 @@ document.addEventListener("DOMContentLoaded", () => {
     vx/=len;
     vy/=len;
 
-    // 主要水平 / 垂直推出距離，依原本相對方向飛出去。
     const push=105+Math.random()*38;
     const endX=vx*push;
-
-    // 拋物線：一開始往上彈，最後稍微落下。
-    // 若原方向本來是上下，也保留一部分原方向量。
     const directionalY=vy*42;
     const apexY=-72-Math.random()*28 + directionalY*.22;
     const endY=18+Math.random()*30 + directionalY;
-
     const rot=(vx>=0 ? 1 : -1)*(22+Math.random()*34);
 
     const fly=document.createElement("div");
@@ -972,71 +987,78 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     document.body.appendChild(fly);
-
-    // 原格立即隱藏。複製體的位置就是該格的 getBoundingClientRect，
-    // 所以第一幀會完全重疊原方塊，不會從盤面中央冒出來。
     el.style.visibility="hidden";
 
+    const duration=560;
     const frames=[
-      {
-        transform:"translate3d(0px,0px,0) rotate(0deg)",
-        opacity:1,
-        offset:0
-      },
-      {
-        transform:`translate3d(${endX*.28}px,${apexY*.72}px,0) rotate(${rot*.24}deg)`,
-        opacity:1,
-        offset:.28
-      },
-      {
-        transform:`translate3d(${endX*.62}px,${apexY}px,0) rotate(${rot*.58}deg)`,
-        opacity:1,
-        offset:.55
-      },
-      {
-        transform:`translate3d(${endX*.86}px,${apexY*.52 + endY*.28}px,0) rotate(${rot*.82}deg)`,
-        opacity:1,
-        offset:.78
-      },
-      {
-        transform:`translate3d(${endX}px,${endY}px,0) rotate(${rot}deg)`,
-        opacity:1,
-        offset:1
-      }
+      {transform:"translate3d(0px,0px,0) rotate(0deg)",opacity:1,offset:0},
+      {transform:`translate3d(${endX*.28}px,${apexY*.72}px,0) rotate(${rot*.24}deg)`,opacity:1,offset:.28},
+      {transform:`translate3d(${endX*.62}px,${apexY}px,0) rotate(${rot*.58}deg)`,opacity:1,offset:.55},
+      {transform:`translate3d(${endX*.86}px,${apexY*.52 + endY*.28}px,0) rotate(${rot*.82}deg)`,opacity:1,offset:.78},
+      {transform:`translate3d(${endX}px,${endY}px,0) rotate(${rot}deg)`,opacity:1,offset:1}
     ];
 
     const anim=fly.animate(frames,{
-      duration:560,
+      duration,
       easing:"linear",
       fill:"forwards"
     });
 
-    // 少量軌跡殘影，同樣從該方塊原本的位置沿著弧線產生。
-    const samples=[
-      {t:95,  x:endX*.20, y:apexY*.56, s:.54},
-      {t:170, x:endX*.40, y:apexY*.88, s:.46},
-      {t:250, x:endX*.62, y:apexY,     s:.38},
-      {t:335, x:endX*.80, y:apexY*.62+endY*.18, s:.30}
-    ];
+    // 粗略近似同一條拋物線位置，拿來生成尾氣。
+    function pathPoint(t){
+      let x,y;
+      if(t<=.55){
+        const p=t/.55;
+        x=endX*.62*p;
+        y=apexY*(1-(1-p)*(1-p));
+      }else{
+        const p=(t-.55)/.45;
+        x=endX*.62 + (endX*.38)*p;
+        y=apexY + (endY-apexY)*(p*p);
+      }
+      return {x,y};
+    }
 
-    samples.forEach(p=>{
-      setTimeout(()=>{
-        const trail=document.createElement("div");
-        trail.className="fly-trail-dot";
-        const w=rect.width*p.s;
-        const h=rect.height*p.s;
-        trail.style.left=(tileCX-w/2+p.x)+"px";
-        trail.style.top=(tileCY-h/2+p.y)+"px";
-        trail.style.width=w+"px";
-        trail.style.height=h+"px";
-        trail.style.background=color;
-        document.body.appendChild(trail);
-        setTimeout(()=>trail.remove(),260);
-      },p.t);
-    });
+    const puffTimer=setInterval(()=>{
+      if(!document.body.contains(fly)){
+        clearInterval(puffTimer);
+        return;
+      }
+      const timing=anim.currentTime ?? 0;
+      const t=Math.max(0,Math.min(1,timing/duration));
+      const p=pathPoint(t);
 
-    anim.onfinish=()=>fly.remove();
-    setTimeout(()=>fly.remove(),650);
+      // 每次噴 1~2 顆小粒子，稍微往反方向散開。
+      const count=Math.random()<.45 ? 2 : 1;
+      for(let i=0;i<count;i++){
+        const puff=document.createElement("div");
+        puff.className="fly-puff";
+        const size=Math.max(4,rect.width*(.10+Math.random()*.08));
+        const jitterX=(Math.random()-.5)*8;
+        const jitterY=(Math.random()-.5)*8;
+        puff.style.left=(tileCX-size/2+p.x+jitterX)+"px";
+        puff.style.top=(tileCY-size/2+p.y+jitterY)+"px";
+        puff.style.width=size+"px";
+        puff.style.height=size+"px";
+        puff.style.background=color;
+
+        // 尾氣往飛行反方向飄
+        puff.style.setProperty("--px",(-vx*(10+Math.random()*12)+(Math.random()-.5)*8)+"px");
+        puff.style.setProperty("--py",(-vy*(8+Math.random()*10)+6+Math.random()*8)+"px");
+
+        document.body.appendChild(puff);
+        setTimeout(()=>puff.remove(),380);
+      }
+    },48);
+
+    anim.onfinish=()=>{
+      clearInterval(puffTimer);
+      fly.remove();
+    };
+    setTimeout(()=>{
+      clearInterval(puffTimer);
+      fly.remove();
+    },650);
   }
 
   function resolveMove(r,c){
