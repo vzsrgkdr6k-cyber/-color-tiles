@@ -74,7 +74,7 @@ button{font:inherit}
   position:absolute;inset:10px;display:flex;align-items:center;justify-content:center;
   background:rgba(7,9,12,.76);backdrop-filter:blur(4px);border-radius:14px;z-index:4;
 }
-.overlay[hidden]{display:none}
+.overlay[hidden]{display:none !important;pointer-events:none !important}
 .dialog{width:min(420px,88%);padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:18px;text-align:center;box-shadow:var(--shadow)}
 .dialog h2{margin:0 0 8px;font-size:28px}
 .dialog p{color:var(--muted);line-height:1.6}
@@ -181,8 +181,8 @@ button{font:inherit}
   justify-content:center;
   padding:18px;
 }
-.settings-backdrop{display:none}
-.settings-backdrop.is-open{display:flex !important}
+.settings-backdrop{display:none;pointer-events:none}
+.settings-backdrop.is-open{display:flex !important;pointer-events:auto}
 .settings-modal{
   width:min(520px,100%);
   max-height:90vh;
@@ -315,6 +315,11 @@ button{font:inherit}
   }
 }
 
+
+.cell{
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
 </style>
 </head>
 <body>
@@ -365,7 +370,7 @@ button{font:inherit}
       <li>完全沒消到方塊會扣 10 秒。</li>
     </ol>
 
-    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會把剩餘方塊隨機重排，直到盤面至少存在一個合法解；位置不會固定在中央。</span></div>
+    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會隨機重新排列剩餘方塊，直到產生至少一個合法解。</span></div>
 
 
 
@@ -764,6 +769,14 @@ document.addEventListener("DOMContentLoaded", () => {
           b.appendChild(s);
         }
         b.setAttribute("aria-label", grid[r][c] ? `彩色方塊 ${SHAPE_NAMES[shapeForColor.get(grid[r][c])] || "圈"}` : `空白格 ${r+1}, ${c+1}`);
+
+        // 每格直接綁定事件，避免手機/桌面瀏覽器的事件代理被其他元素攔截。
+        b.addEventListener("click",(ev)=>{
+          ev.preventDefault();
+          ev.stopPropagation();
+          resolveMove(r,c);
+        });
+
         boardEl.appendChild(b);
       }
     }
@@ -875,6 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if(gameMode!=="endless" || !playing || tilesLeft===0) return;
     if(hasAnyValidMove()) return;
 
+    // 收集目前剩餘顏色
     let colors=[];
     for(let r=0;r<ROWS;r++){
       for(let c=0;c<COLS;c++){
@@ -882,11 +896,13 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    // 最後只剩一顆：直接整理完成，避免必死局。
+    // 最後只剩一顆時已無法依規則形成配對，直接整理完成
     if(colors.length===1){
+      for(let r=0;r<ROWS;r++){
+        for(let c=0;c<COLS;c++) grid[r][c]=null;
+      }
       score++;
       tilesLeft=0;
-      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
       render();
       updateHud();
       showReshuffleToast("最後 1 顆自動整理完成！");
@@ -894,80 +910,142 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // 如果剩餘顏色完全沒有任何成對顏色，微調一顆顏色，確保至少存在配對可能。
+    // 若所有顏色都只剩單顆，微調一顆顏色，讓至少存在一組同色
     const counts=new Map();
     colors.forEach(c=>counts.set(c,(counts.get(c)||0)+1));
     if(![...counts.values()].some(n=>n>=2) && colors.length>=2){
       colors[1]=colors[0];
     }
 
-    const allPositions=[];
+    const everyCell=[];
     for(let r=0;r<ROWS;r++){
-      for(let c=0;c<COLS;c++) allPositions.push({r,c});
+      for(let c=0;c<COLS;c++) everyCell.push({r,c});
     }
 
-    // 每次都重新隨機挑位置 + 隨機分配顏色。
-    // 只有真的存在至少一個合法點擊時才接受。
-    let found=false;
-    for(let attempt=0;attempt<1200;attempt++){
-      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
-
-      const positions=shuffled(allPositions).slice(0,colors.length);
-      const shuffledColors=shuffled(colors);
-      positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
-
-      if(hasAnyValidMove()){
-        found=true;
-        break;
-      }
-    }
-
-    // 極少數隨機嘗試仍失敗時：建立一個隨機保證解，但位置不是中央固定點。
-    if(!found){
-      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
-
-      const shuffledColors=shuffled(colors);
-      let pairColor=null;
-      const tempCounts=new Map();
-      shuffledColors.forEach(c=>tempCounts.set(c,(tempCounts.get(c)||0)+1));
-      pairColor=[...tempCounts.entries()].find(([,n])=>n>=2)?.[0] || shuffledColors[0];
-
-      let pairTaken=0;
-      const rest=[];
-      for(const c of shuffledColors){
-        if(c===pairColor && pairTaken<2) pairTaken++;
-        else rest.push(c);
-      }
-
-      // 隨機找一個可形成「方塊-空格-方塊」或垂直版本的位置。
-      const candidates=[];
+    function clearGrid(){
       for(let r=0;r<ROWS;r++){
-        for(let c=1;c<COLS-1;c++){
-          candidates.push({a:{r,c:c-1}, gap:{r,c}, b:{r,c:c+1}});
-        }
+        for(let c=0;c<COLS;c++) grid[r][c]=null;
       }
-      for(let r=1;r<ROWS-1;r++){
-        for(let c=0;c<COLS;c++){
-          candidates.push({a:{r:r-1,c}, gap:{r,c}, b:{r:r+1,c}});
-        }
-      }
-      const chosen=shuffled(candidates)[0];
-      grid[chosen.a.r][chosen.a.c]=pairColor;
-      grid[chosen.b.r][chosen.b.c]=pairColor;
+    }
 
-      const reserved=new Set([
-        `${chosen.a.r},${chosen.a.c}`,
-        `${chosen.gap.r},${chosen.gap.c}`,
-        `${chosen.b.r},${chosen.b.c}`
-      ]);
-      const free=shuffled(allPositions.filter(p=>!reserved.has(`${p.r},${p.c}`)));
-      rest.forEach((color,i)=>{
-        if(free[i]) grid[free[i].r][free[i].c]=color;
+    function placeRandom(){
+      clearGrid();
+      const spots=shuffled(everyCell).slice(0,colors.length);
+      const shuffledColors=shuffled(colors);
+      spots.forEach((p,i)=>{
+        grid[p.r][p.c]=shuffledColors[i];
       });
     }
 
+    // 大部分情況：完全隨機重排，直到自然產生至少一個合法解
+    for(let attempt=0;attempt<500;attempt++){
+      placeRandom();
+      if(hasAnyValidMove()){
+        render();
+        updateHud();
+        showReshuffleToast("死局已隨機重整，找找新的解！");
+        return;
+      }
+    }
+
+    // 極少數情況：500 次仍沒有合法解。
+    // 做一個「位置仍然完全隨機」的保底解，不固定中央。
+    clearGrid();
+
+    const pairCounts=new Map();
+    colors.forEach(c=>pairCounts.set(c,(pairCounts.get(c)||0)+1));
+    let pairColor=[...pairCounts.entries()].find(([,n])=>n>=2)?.[0];
+    if(!pairColor){
+      colors[1]=colors[0];
+      pairColor=colors[0];
+    }
+
+    let pairTaken=0;
+    const rest=[];
+    for(const color of colors){
+      if(color===pairColor && pairTaken<2){
+        pairTaken++;
+      }else{
+        rest.push(color);
+      }
+    }
+
+    // 隨機決定橫向或縱向，並隨機選位置與間隔
+    const horizontal=Math.random()<0.5;
+    let a,b;
+
+    if(horizontal){
+      const r=Math.floor(Math.random()*ROWS);
+      const c1=Math.floor(Math.random()*(COLS-2));
+      const c2=c1+2+Math.floor(Math.random()*(COLS-c1-2));
+      a={r,c:c1};
+      b={r,c:c2};
+    }else{
+      const c=Math.floor(Math.random()*COLS);
+      const r1=Math.floor(Math.random()*(ROWS-2));
+      const r2=r1+2+Math.floor(Math.random()*(ROWS-r1-2));
+      a={r:r1,c};
+      b={r:r2,c};
+    }
+
+    grid[a.r][a.c]=pairColor;
+    grid[b.r][b.c]=pairColor;
+
+    // 其餘方塊也全部隨機放，不固定任何區域
+    const reserved=new Set([`${a.r},${a.c}`,`${b.r},${b.c}`]);
+    const free=shuffled(everyCell.filter(p=>!reserved.has(`${p.r},${p.c}`)));
+    shuffled(rest).forEach((color,i)=>{
+      if(free[i]) grid[free[i].r][free[i].c]=color;
+    });
+
     render();
     updateHud();
+
+    // 理論保底結構一定可解；額外做一次檢查
+    if(!hasAnyValidMove()){
+      // 若其他方塊剛好堵住兩顆中間的視線，清掉兩者之間的格子，
+      // 並把那些顏色重新隨機塞到其他空位。
+      const displaced=[];
+
+      if(horizontal){
+        const left=Math.min(a.c,b.c);
+        const right=Math.max(a.c,b.c);
+        for(let c=left+1;c<right;c++){
+          if(grid[a.r][c]){
+            displaced.push(grid[a.r][c]);
+            grid[a.r][c]=null;
+          }
+        }
+      }else{
+        const top=Math.min(a.r,b.r);
+        const bottom=Math.max(a.r,b.r);
+        for(let r=top+1;r<bottom;r++){
+          if(grid[r][a.c]){
+            displaced.push(grid[r][a.c]);
+            grid[r][a.c]=null;
+          }
+        }
+      }
+
+      const empties=shuffled(everyCell.filter(p=>grid[p.r][p.c]===null));
+      displaced.forEach((color,i)=>{
+        // 不重新塞進保證解的兩顆之間
+        let p=empties.find(q=>{
+          if(horizontal && q.r===a.r && q.c>Math.min(a.c,b.c) && q.c<Math.max(a.c,b.c)) return false;
+          if(!horizontal && q.c===a.c && q.r>Math.min(a.r,b.r) && q.r<Math.max(a.r,b.r)) return false;
+          return true;
+        });
+        if(p){
+          grid[p.r][p.c]=color;
+          const idx=empties.indexOf(p);
+          if(idx>=0) empties.splice(idx,1);
+        }
+      });
+
+      render();
+      updateHud();
+    }
+
     showReshuffleToast("死局已隨機重整，找找新的解！");
   }
 
@@ -1075,8 +1153,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function start(){
-playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; scoreSaved=false;
+    // 每次按「開始」都建立全新盤面，並確認遮罩完全退出。
+    makeBoard();
+    playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; scoreSaved=false;
     overlay.hidden=true;
+    overlay.style.pointerEvents="none";
     updateHud();
     cancelAnimationFrame(raf);
     playStart();
@@ -1123,24 +1204,26 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     };
     setTimeout(()=>nick.focus(),50);
     overlay.hidden=!show;
+    overlay.style.pointerEvents=show ? "auto" : "none";
   }
 
 
   function setMode(mode){
-    // 模式切換永遠視為新的一局，不沿用上一局結束盤面。
+    // 切換模式 = 直接準備一個全新的局
     playing=false;
     cancelAnimationFrame(raf);
     stopBgm();
 
     gameMode=mode;
     localStorage.setItem("ct-mode",mode);
+
     timedModeBtn.classList.toggle("active",mode==="timed");
     endlessModeBtn.classList.toggle("active",mode==="endless");
     modeHint.textContent = mode==="timed"
       ? "點錯會扣 10 秒。"
       : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
 
-    // 強制建立新盤面並重置分數 / 時間 / 剩餘方塊。
+    // 關鍵：切模式時一定重建完整的新盤面
     makeBoard();
     buildIntro(true);
   }
@@ -1335,11 +1418,6 @@ bgmBtn.addEventListener("click", ()=>{
     themeBtn.textContent=light ? "🌙 黑暗模式" : "☀️ 淺色模式";
   }
 
-  boardEl.addEventListener("click",e=>{
-    const el=e.target.closest(".cell");
-    if(!el) return;
-    resolveMove(+el.dataset.r,+el.dataset.c);
-  });
 
   restartBtn.addEventListener("click", restart);
   startBtn.addEventListener("click", ()=>buildIntro(true));
