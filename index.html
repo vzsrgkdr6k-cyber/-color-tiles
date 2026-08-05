@@ -105,6 +105,8 @@ button{font:inherit}
         <p>找出上下左右最近的同色方塊，把它們消掉。 <span id="jsStatus" style="font-size:12px;color:var(--muted)">載入中…</span></p>
       </div>
       <div class="actions">
+        <button class="btn" id="bgmBtn" type="button">🎵 BGM：開</button>
+        <button class="btn" id="sfxBtn" type="button">🔊 音效：開</button>
         <button class="btn" id="themeBtn" type="button">☀️ 淺色模式</button>
         <button class="btn primary" id="restartBtn" type="button">重新開始</button>
       </div>
@@ -137,6 +139,13 @@ button{font:inherit}
       <li>每消掉 1 個方塊得 1 分。</li>
       <li>完全沒消到方塊會扣 10 秒。</li>
     </ol>
+    <div class="notice">
+      <strong>音效設定</strong><br>
+      <label class="small" for="bgmVolume">BGM 音量</label>
+      <input id="bgmVolume" type="range" min="0" max="100" value="28" style="width:100%">
+      <label class="small" for="sfxVolume">音效音量</label>
+      <input id="sfxVolume" type="range" min="0" max="100" value="55" style="width:100%">
+    </div>
     <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
     <div class="notice"><strong>這版盤面</strong><br><span class="small">200 個彩色方塊、120 秒。方塊配置每局隨機產生。</span></div>
   </aside>
@@ -159,10 +168,147 @@ document.addEventListener("DOMContentLoaded", () => {
   const startBtn = document.getElementById("startBtn");
   const restartBtn = document.getElementById("restartBtn");
   const themeBtn = document.getElementById("themeBtn");
+  const bgmBtn = document.getElementById("bgmBtn");
+  const sfxBtn = document.getElementById("sfxBtn");
+  const bgmVolume = document.getElementById("bgmVolume");
+  const sfxVolume = document.getElementById("sfxVolume");
   const boardWrap = document.getElementById("boardWrap");
 
   let grid=[], score=0, tilesLeft=TILE_COUNT, remaining=START_TIME;
   let playing=false, raf=0, lastTs=0, frozenScore=null;
+
+  let audioCtx = null;
+  let masterGain = null;
+  let bgmGain = null;
+  let sfxGain = null;
+  let bgmEnabled = localStorage.getItem("ct-bgm") !== "off";
+  let sfxEnabled = localStorage.getItem("ct-sfx") !== "off";
+  let bgmTimer = null;
+  let bgmStep = 0;
+
+  bgmVolume.value = localStorage.getItem("ct-bgm-vol") || "28";
+  sfxVolume.value = localStorage.getItem("ct-sfx-vol") || "55";
+
+  function ensureAudio(){
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      bgmGain = audioCtx.createGain();
+      sfxGain = audioCtx.createGain();
+      bgmGain.connect(masterGain);
+      sfxGain.connect(masterGain);
+      masterGain.connect(audioCtx.destination);
+      masterGain.gain.value = 0.85;
+      updateAudioLevels();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return true;
+  }
+
+  function updateAudioLevels(){
+    if (!audioCtx) return;
+    bgmGain.gain.setTargetAtTime(bgmEnabled ? (+bgmVolume.value/100) : 0, audioCtx.currentTime, 0.03);
+    sfxGain.gain.setTargetAtTime(sfxEnabled ? (+sfxVolume.value/100) : 0, audioCtx.currentTime, 0.03);
+  }
+
+  function tone(freq, duration=0.12, type="sine", volume=0.18, when=0){
+    if (!ensureAudio() || !sfxEnabled) return;
+    const t = audioCtx.currentTime + when;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), t + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(gain);
+    gain.connect(sfxGain);
+    osc.start(t);
+    osc.stop(t + duration + 0.03);
+  }
+
+  function playSuccess(count=2){
+    const base = 520 + Math.min(count,4)*45;
+    tone(base, .11, "triangle", .14, 0);
+    tone(base*1.25, .13, "triangle", .12, .065);
+    if(count >= 3) tone(base*1.5, .14, "sine", .10, .13);
+  }
+
+  function playBad(){
+    if (!ensureAudio() || !sfxEnabled) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(180,t);
+    osc.frequency.exponentialRampToValueAtTime(85,t+.22);
+    gain.gain.setValueAtTime(.12,t);
+    gain.gain.exponentialRampToValueAtTime(.0001,t+.24);
+    osc.connect(gain); gain.connect(sfxGain);
+    osc.start(t); osc.stop(t+.26);
+  }
+
+  function playStart(){
+    tone(440,.12,"sine",.12,0);
+    tone(660,.14,"sine",.12,.09);
+    tone(880,.18,"triangle",.10,.18);
+  }
+
+  function playFinish(cleared){
+    if(cleared){
+      tone(523,.15,"triangle",.12,0);
+      tone(659,.15,"triangle",.12,.10);
+      tone(784,.16,"triangle",.12,.20);
+      tone(1047,.25,"sine",.12,.30);
+    }else{
+      tone(330,.18,"sine",.11,0);
+      tone(262,.22,"triangle",.10,.14);
+    }
+  }
+
+  const bgmPattern = [
+    [261.63,329.63,392.00],
+    [220.00,277.18,329.63],
+    [246.94,311.13,369.99],
+    [196.00,246.94,293.66],
+  ];
+
+  function bgmPulse(){
+    if(!playing || !bgmEnabled || !ensureAudio()) return;
+    const chord = bgmPattern[Math.floor(bgmStep/4)%bgmPattern.length];
+    const note = chord[bgmStep%3];
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = note;
+    gain.gain.setValueAtTime(.0001,t);
+    gain.gain.exponentialRampToValueAtTime(.055,t+.03);
+    gain.gain.exponentialRampToValueAtTime(.0001,t+.34);
+    osc.connect(gain); gain.connect(bgmGain);
+    osc.start(t); osc.stop(t+.38);
+    bgmStep++;
+  }
+
+  function startBgm(){
+    stopBgm();
+    if(!bgmEnabled) return;
+    ensureAudio();
+    bgmStep=0;
+    bgmPulse();
+    bgmTimer=setInterval(bgmPulse, 360);
+  }
+
+  function stopBgm(){
+    if(bgmTimer){ clearInterval(bgmTimer); bgmTimer=null; }
+  }
+
+  function updateAudioButtons(){
+    bgmBtn.textContent = bgmEnabled ? "🎵 BGM：開" : "🎵 BGM：關";
+    sfxBtn.textContent = sfxEnabled ? "🔊 音效：開" : "🔇 音效：關";
+  }
 
   document.documentElement.dataset.theme = localStorage.getItem("ct-theme") || "dark";
   updateThemeButton();
@@ -251,6 +397,7 @@ document.addEventListener("DOMContentLoaded", () => {
       clicked.classList.add("bad");
       setTimeout(()=>clicked.classList.remove("bad"),350);
       showPenalty(clicked);
+      playBad();
       if(remaining<=0) finish(false);
       updateHud();
       return;
@@ -258,6 +405,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     clicked.classList.add("good");
     const unique=[...new Map(remove.map(x=>[`${x.r},${x.c}`,x])).values()];
+    playSuccess(unique.length);
     unique.forEach(x=>{
       const el=boardEl.children[x.r*COLS+x.c];
       el.classList.add("removing");
@@ -315,6 +463,8 @@ document.addEventListener("DOMContentLoaded", () => {
     overlay.hidden=true;
     updateHud();
     cancelAnimationFrame(raf);
+    playStart();
+    startBgm();
     raf=requestAnimationFrame(tick);
   }
 
@@ -322,6 +472,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if(!playing) return;
     playing=false;
     cancelAnimationFrame(raf);
+    stopBgm();
+    playFinish(cleared);
     frozenScore=score;
     updateHud();
     overlay.hidden=false;
@@ -348,7 +500,39 @@ document.addEventListener("DOMContentLoaded", () => {
   function restart(){
     playing=false;
     cancelAnimationFrame(raf);
-    makeBoard();
+    stopBgm();
+  
+  bgmBtn.addEventListener("click", ()=>{
+    bgmEnabled = !bgmEnabled;
+    localStorage.setItem("ct-bgm", bgmEnabled ? "on" : "off");
+    ensureAudio();
+    updateAudioLevels();
+    updateAudioButtons();
+    if(playing && bgmEnabled) startBgm(); else stopBgm();
+  });
+
+  sfxBtn.addEventListener("click", ()=>{
+    sfxEnabled = !sfxEnabled;
+    localStorage.setItem("ct-sfx", sfxEnabled ? "on" : "off");
+    ensureAudio();
+    updateAudioLevels();
+    updateAudioButtons();
+  });
+
+  bgmVolume.addEventListener("input", ()=>{
+    localStorage.setItem("ct-bgm-vol", bgmVolume.value);
+    ensureAudio();
+    updateAudioLevels();
+  });
+
+  sfxVolume.addEventListener("input", ()=>{
+    localStorage.setItem("ct-sfx-vol", sfxVolume.value);
+    ensureAudio();
+    updateAudioLevels();
+  });
+
+  updateAudioButtons();
+  makeBoard();
     buildIntro(true);
   }
 
