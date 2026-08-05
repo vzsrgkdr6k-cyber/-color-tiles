@@ -168,6 +168,129 @@ button{font:inherit}
   72%{opacity:1}
   100%{opacity:0;transform:translate(-50%,-58%) scale(.98)}
 }
+
+/* ===== 設定視窗 ===== */
+.settings-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  background:rgba(0,0,0,.58);
+  backdrop-filter:blur(5px);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+}
+.settings-backdrop[hidden]{display:none}
+.settings-modal{
+  width:min(520px,100%);
+  max-height:90vh;
+  overflow:auto;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:20px;
+  padding:18px;
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+}
+.settings-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+.settings-head h2{margin:0;font-size:23px}
+.settings-close{
+  width:38px;
+  height:38px;
+  border-radius:11px;
+  border:1px solid var(--line);
+  background:var(--panel2);
+  color:var(--text);
+  font-size:25px;
+  cursor:pointer;
+}
+.settings-section{
+  border:1px solid var(--line);
+  background:var(--panel2);
+  border-radius:14px;
+  padding:12px;
+  margin-top:10px;
+}
+.settings-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.setting-toggle{white-space:nowrap}
+.settings-slider{display:block;margin-top:12px}
+.settings-slider span{
+  display:block;
+  color:var(--muted);
+  font-size:12px;
+  margin-bottom:5px;
+}
+.settings-slider input{width:100%}
+
+/* ===== 方塊彈出 + 短軌跡 ===== */
+.fly-tile{
+  position:fixed;
+  z-index:60;
+  pointer-events:none;
+  border-radius:4px;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,.18),
+    inset 0 -3px 0 rgba(0,0,0,.16);
+  animation:tileFly .34s cubic-bezier(.2,.75,.28,1) forwards;
+  will-change:transform,opacity;
+}
+.fly-tile .fly-shape{
+  position:absolute;
+  inset:12%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.fly-tile .fly-shape svg{width:100%;height:100%}
+.fly-tile .fly-shape .shape-line{
+  fill:none;
+  stroke:rgba(255,255,255,.95);
+  stroke-width:2.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  vector-effect:non-scaling-stroke;
+}
+.fly-trail{
+  position:fixed;
+  z-index:59;
+  pointer-events:none;
+  border-radius:999px;
+  transform-origin:left center;
+  opacity:.28;
+  filter:blur(.3px);
+  animation:trailFade .30s ease-out forwards;
+}
+@keyframes tileFly{
+  0%{
+    opacity:1;
+    transform:translate(0,0) rotate(0deg) scale(1);
+  }
+  100%{
+    opacity:0;
+    transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.72);
+  }
+}
+@keyframes trailFade{
+  0%{opacity:.30}
+  100%{opacity:0}
+}
+.cell.flying-out{
+  opacity:.08;
+  transform:scale(.86);
+  transition:opacity .08s ease,transform .08s ease;
+}
+
 </style>
 </head>
 <body>
@@ -179,10 +302,7 @@ button{font:inherit}
         <p>找出上下左右最近的同色方塊，把它們消掉。 <span id="jsStatus" style="font-size:12px;color:var(--muted)">載入中…</span></p>
       </div>
       <div class="actions">
-        <button class="btn" id="shapeBtn" type="button">◆ 圖形：開</button>
-        <button class="btn" id="bgmBtn" type="button">🎵 BGM：開</button>
-        <button class="btn" id="sfxBtn" type="button">🔊 音效：開</button>
-        <button class="btn" id="themeBtn" type="button">☀️ 淺色模式</button>
+        <button class="btn" id="settingsBtn" type="button">⚙️ 設定</button>
         <button class="btn primary" id="restartBtn" type="button">重新開始</button>
       </div>
     </div>
@@ -220,16 +340,10 @@ button{font:inherit}
       <li>每消掉 1 個方塊得 1 分。</li>
       <li>完全沒消到方塊會扣 10 秒。</li>
     </ol>
-    <div class="notice">
-      <strong>音效 / RPG 村莊 BGM</strong><br>
-      <label class="small" for="bgmVolume">BGM 音量</label>
-      <input id="bgmVolume" type="range" min="0" max="100" value="28" style="width:100%">
-      <label class="small" for="sfxVolume">音效音量</label>
-      <input id="sfxVolume" type="range" min="0" max="100" value="55" style="width:100%">
-    </div>
+
     <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會自動移動並重整剩餘方塊；最後兩顆也會排成「方塊－空格－方塊」，確保能消到 0。</span></div>
-    <div class="notice"><strong>◆ 圖形辨識</strong><br><span class="small">開啟後，每種顏色固定搭配鏤空線框圖形；包含圈、叉、三角、方框等，同色永遠同圖形。</span></div>
-    <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
+
+
 
     
     <div class="notice">
@@ -305,6 +419,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const bgmVolume = document.getElementById("bgmVolume");
   const sfxVolume = document.getElementById("sfxVolume");
   const boardWrap = document.getElementById("boardWrap");
+  const settingsBtn = document.getElementById("settingsBtn");
+  const settingsBackdrop = document.getElementById("settingsBackdrop");
+  const settingsCloseBtn = document.getElementById("settingsCloseBtn");
   const timedModeBtn = document.getElementById("timedModeBtn");
   const endlessModeBtn = document.getElementById("endlessModeBtn");
   const modeHint = document.getElementById("modeHint");
@@ -742,6 +859,57 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
+
+  function createFlyOut(el, color, shapeType){
+    const rect=el.getBoundingClientRect();
+    const cx=rect.left+rect.width/2;
+    const cy=rect.top+rect.height/2;
+
+    const angle=Math.random()*Math.PI*2;
+    const distance=34+Math.random()*24;
+    const dx=Math.cos(angle)*distance;
+    const dy=Math.sin(angle)*distance;
+    const rot=(-24+Math.random()*48).toFixed(1)+"deg";
+
+    // 很短的淡色軌跡
+    const trail=document.createElement("div");
+    trail.className="fly-trail";
+    trail.style.left=cx+"px";
+    trail.style.top=(cy-2)+"px";
+    trail.style.width=Math.max(18,distance*.72)+"px";
+    trail.style.height=Math.max(3,rect.height*.11)+"px";
+    trail.style.background=color;
+    trail.style.transform=`rotate(${angle*180/Math.PI}deg)`;
+    document.body.appendChild(trail);
+
+    // 飛出去的方塊複製體
+    const fly=document.createElement("div");
+    fly.className="fly-tile";
+    fly.style.left=rect.left+"px";
+    fly.style.top=rect.top+"px";
+    fly.style.width=rect.width+"px";
+    fly.style.height=rect.height+"px";
+    fly.style.background=color;
+    fly.style.setProperty("--dx",dx+"px");
+    fly.style.setProperty("--dy",dy+"px");
+    fly.style.setProperty("--rot",rot);
+
+    if(shapesEnabled){
+      const shape=document.createElement("span");
+      shape.className="fly-shape";
+      shape.innerHTML=shapeSvg(shapeType || "circle");
+      fly.appendChild(shape);
+    }
+
+    document.body.appendChild(fly);
+    el.classList.add("flying-out");
+
+    setTimeout(()=>{
+      fly.remove();
+      trail.remove();
+    },380);
+  }
+
   function resolveMove(r,c){
     if(!playing || grid[r][c]) return;
 
@@ -768,7 +936,7 @@ document.addEventListener("DOMContentLoaded", () => {
     playSuccess(unique.length);
     unique.forEach(x=>{
       const el=boardEl.children[x.r*COLS+x.c];
-      el.classList.add("removing");
+      createFlyOut(el, grid[x.r][x.c], shapeForColor.get(grid[x.r][x.c]));
     });
 
     setTimeout(()=>{
@@ -786,7 +954,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }else if(gameMode==="endless"){
         setTimeout(guaranteeEndlessMove,120);
       }
-    },190);
+    },260);
   }
 
   function showPenalty(el, label="-10 秒"){
@@ -1096,5 +1264,63 @@ bgmBtn.addEventListener("click", ()=>{
   }
 });
 </script>
+
+<div class="settings-backdrop" id="settingsBackdrop" hidden>
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="settings-head">
+      <h2 id="settingsTitle">⚙️ 設定</h2>
+      <button class="settings-close" id="settingsCloseBtn" type="button" aria-label="關閉設定">×</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>圖形辨識</strong>
+          <div class="small">同顏色固定使用相同的鏤空圖形。</div>
+        </div>
+        <button class="btn setting-toggle" id="shapeBtn" type="button">◆ 圖形：開</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>BGM</strong>
+          <div class="small">輕快 RPG 村莊風格。</div>
+        </div>
+        <button class="btn setting-toggle" id="bgmBtn" type="button">🎵 BGM：開</button>
+      </div>
+      <label class="settings-slider">
+        <span>BGM 音量</span>
+        <input id="bgmVolume" type="range" min="0" max="100" value="28">
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>音效</strong>
+          <div class="small">消除、點錯、開始與結束音效。</div>
+        </div>
+        <button class="btn setting-toggle" id="sfxBtn" type="button">🔊 音效：開</button>
+      </div>
+      <label class="settings-slider">
+        <span>音效音量</span>
+        <input id="sfxVolume" type="range" min="0" max="100" value="55">
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>顯示模式</strong>
+          <div class="small">黑暗 / 淺色模式。</div>
+        </div>
+        <button class="btn setting-toggle" id="themeBtn" type="button">☀️ 淺色模式</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
