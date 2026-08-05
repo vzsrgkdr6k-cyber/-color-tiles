@@ -182,7 +182,7 @@ button{font:inherit}
   padding:18px;
 }
 .settings-backdrop{display:none}
-.settings-backdrop.is-open{display:flex}
+.settings-backdrop.is-open{display:flex !important}
 .settings-modal{
   width:min(520px,100%);
   max-height:90vh;
@@ -364,6 +364,63 @@ button{font:inherit}
     </div>
     <div class="notice"><strong>這版盤面</strong><br><span class="small">200 個彩色方塊、10 種顏色。方塊配置每局隨機產生。</span></div>
   </aside>
+</div>
+
+<div class="settings-backdrop" id="settingsBackdrop">
+  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="settings-head">
+      <h2 id="settingsTitle">⚙️ 設定</h2>
+      <button class="settings-close" id="settingsCloseBtn" type="button" aria-label="關閉設定">×</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>圖形辨識</strong>
+          <div class="small">同顏色固定使用相同的鏤空圖形。</div>
+        </div>
+        <button class="btn setting-toggle" id="shapeBtn" type="button">◆ 圖形：開</button>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>BGM</strong>
+          <div class="small">輕快 RPG 村莊風格。</div>
+        </div>
+        <button class="btn setting-toggle" id="bgmBtn" type="button">🎵 BGM：開</button>
+      </div>
+      <label class="settings-slider">
+        <span>BGM 音量</span>
+        <input id="bgmVolume" type="range" min="0" max="100" value="28">
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>音效</strong>
+          <div class="small">消除、點錯、開始與結束音效。</div>
+        </div>
+        <button class="btn setting-toggle" id="sfxBtn" type="button">🔊 音效：開</button>
+      </div>
+      <label class="settings-slider">
+        <span>音效音量</span>
+        <input id="sfxVolume" type="range" min="0" max="100" value="55">
+      </label>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
+        <div>
+          <strong>顯示模式</strong>
+          <div class="small">黑暗 / 淺色模式。</div>
+        </div>
+        <button class="btn setting-toggle" id="themeBtn" type="button">☀️ 淺色模式</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1147,19 +1204,23 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
   
   function openSettings(e){
     if(e) e.preventDefault();
+    if(!settingsBackdrop) return;
     settingsBackdrop.classList.add("is-open");
     document.body.style.overflow="hidden";
   }
   function closeSettings(e){
     if(e) e.preventDefault();
+    if(!settingsBackdrop) return;
     settingsBackdrop.classList.remove("is-open");
     document.body.style.overflow="";
   }
-  settingsBtn.addEventListener("click",openSettings);
-  settingsCloseBtn.addEventListener("click",closeSettings);
-  settingsBackdrop.addEventListener("click",e=>{
-    if(e.target===settingsBackdrop) closeSettings(e);
-  });
+  if(settingsBtn) settingsBtn.onclick=openSettings;
+  if(settingsCloseBtn) settingsCloseBtn.onclick=closeSettings;
+  if(settingsBackdrop){
+    settingsBackdrop.addEventListener("click",e=>{
+      if(e.target===settingsBackdrop) closeSettings(e);
+    });
+  }
 
   makeBoard();
     buildIntro(true);
@@ -1364,63 +1425,6 @@ bgmBtn.addEventListener("click", ()=>{
   }
 });
 </script>
-
-<div class="settings-backdrop" id="settingsBackdrop">
-  <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-    <div class="settings-head">
-      <h2 id="settingsTitle">⚙️ 設定</h2>
-      <button class="settings-close" id="settingsCloseBtn" type="button" aria-label="關閉設定">×</button>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-row">
-        <div>
-          <strong>圖形辨識</strong>
-          <div class="small">同顏色固定使用相同的鏤空圖形。</div>
-        </div>
-        <button class="btn setting-toggle" id="shapeBtn" type="button">◆ 圖形：開</button>
-      </div>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-row">
-        <div>
-          <strong>BGM</strong>
-          <div class="small">輕快 RPG 村莊風格。</div>
-        </div>
-        <button class="btn setting-toggle" id="bgmBtn" type="button">🎵 BGM：開</button>
-      </div>
-      <label class="settings-slider">
-        <span>BGM 音量</span>
-        <input id="bgmVolume" type="range" min="0" max="100" value="28">
-      </label>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-row">
-        <div>
-          <strong>音效</strong>
-          <div class="small">消除、點錯、開始與結束音效。</div>
-        </div>
-        <button class="btn setting-toggle" id="sfxBtn" type="button">🔊 音效：開</button>
-      </div>
-      <label class="settings-slider">
-        <span>音效音量</span>
-        <input id="sfxVolume" type="range" min="0" max="100" value="55">
-      </label>
-    </div>
-
-    <div class="settings-section">
-      <div class="settings-row">
-        <div>
-          <strong>顯示模式</strong>
-          <div class="small">黑暗 / 淺色模式。</div>
-        </div>
-        <button class="btn setting-toggle" id="themeBtn" type="button">☀️ 淺色模式</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 </body>
 </html>
