@@ -181,7 +181,8 @@ button{font:inherit}
   justify-content:center;
   padding:18px;
 }
-.settings-backdrop[hidden]{display:none}
+.settings-backdrop{display:none}
+.settings-backdrop.is-open{display:flex}
 .settings-modal{
   width:min(520px,100%);
   max-height:90vh;
@@ -278,6 +279,16 @@ button{font:inherit}
 @keyframes trailDotFade{
   from{opacity:.36}
   to{opacity:0}
+}
+
+
+#settingsBtn,.settings-close,.setting-toggle{
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+#settingsBtn{
+  position:relative;
+  z-index:5;
 }
 
 </style>
@@ -1075,7 +1086,24 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     timedModeBtn.classList.toggle("active",mode==="timed");
     endlessModeBtn.classList.toggle("active",mode==="endless");
     modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
-    makeBoard();
+  
+  function openSettings(e){
+    if(e) e.preventDefault();
+    settingsBackdrop.classList.add("is-open");
+    document.body.style.overflow="hidden";
+  }
+  function closeSettings(e){
+    if(e) e.preventDefault();
+    settingsBackdrop.classList.remove("is-open");
+    document.body.style.overflow="";
+  }
+  settingsBtn.addEventListener("click",openSettings);
+  settingsCloseBtn.addEventListener("click",closeSettings);
+  settingsBackdrop.addEventListener("click",e=>{
+    if(e.target===settingsBackdrop) closeSettings(e);
+  });
+
+  makeBoard();
     buildIntro(true);
   }
 
@@ -1279,7 +1307,7 @@ bgmBtn.addEventListener("click", ()=>{
 });
 </script>
 
-<div class="settings-backdrop" id="settingsBackdrop" hidden>
+<div class="settings-backdrop" id="settingsBackdrop">
   <div class="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="settings-head">
       <h2 id="settingsTitle">⚙️ 設定</h2>
