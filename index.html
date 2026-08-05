@@ -365,7 +365,7 @@ button{font:inherit}
       <li>完全沒消到方塊會扣 10 秒。</li>
     </ol>
 
-    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會自動移動並重整剩餘方塊；最後兩顆也會排成「方塊－空格－方塊」，確保能消到 0。</span></div>
+    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會把剩餘方塊隨機重排，直到盤面至少存在一個合法解；位置不會固定在中央。</span></div>
 
 
 
@@ -875,18 +875,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if(gameMode!=="endless" || !playing || tilesLeft===0) return;
     if(hasAnyValidMove()) return;
 
-    const oldPositions=occupiedPositions();
-    let colors=oldPositions.map(p=>grid[p.r][p.c]);
-
-    // 清空剩餘盤面，接下來會把剩餘方塊「移動」到保證能消的位置。
+    let colors=[];
     for(let r=0;r<ROWS;r++){
-      for(let c=0;c<COLS;c++) grid[r][c]=null;
+      for(let c=0;c<COLS;c++){
+        if(grid[r][c]) colors.push(grid[r][c]);
+      }
     }
 
-    // 如果只剩 1 顆，直接視為最後整理完成。
+    // 最後只剩一顆：直接整理完成，避免必死局。
     if(colors.length===1){
       score++;
       tilesLeft=0;
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
       render();
       updateHud();
       showReshuffleToast("最後 1 顆自動整理完成！");
@@ -894,171 +894,81 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // 確保至少有一對同色。
+    // 如果剩餘顏色完全沒有任何成對顏色，微調一顆顏色，確保至少存在配對可能。
     const counts=new Map();
     colors.forEach(c=>counts.set(c,(counts.get(c)||0)+1));
-    let pairColor=[...counts.entries()].find(([,n])=>n>=2)?.[0];
-    if(!pairColor){
+    if(![...counts.values()].some(n=>n>=2) && colors.length>=2){
       colors[1]=colors[0];
-      pairColor=colors[0];
     }
 
-    // 取出兩顆同色，固定放成「方塊－空格－方塊」。
-    // 玩家點中間空格即可消除，避免最後兩顆相鄰卻無法點。
-    let pair=[];
-    const rest=[];
-    for(const color of colors){
-      if(color===pairColor && pair.length<2) pair.push(color);
-      else rest.push(color);
-    }
-
-    const centerR=Math.floor(ROWS/2);
-    const centerC=Math.floor(COLS/2);
-
-    grid[centerR][centerC-1]=pair[0];
-    grid[centerR][centerC+1]=pair[1];
-
-    // 其餘方塊隨機放到其他格子，但保留中間可點的空白格。
-    const free=[];
+    const allPositions=[];
     for(let r=0;r<ROWS;r++){
-      for(let c=0;c<COLS;c++){
-        if(r===centerR && (c===centerC-1 || c===centerC || c===centerC+1)) continue;
-        free.push({r,c});
+      for(let c=0;c<COLS;c++) allPositions.push({r,c});
+    }
+
+    // 每次都重新隨機挑位置 + 隨機分配顏色。
+    // 只有真的存在至少一個合法點擊時才接受。
+    let found=false;
+    for(let attempt=0;attempt<1200;attempt++){
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
+
+      const positions=shuffled(allPositions).slice(0,colors.length);
+      const shuffledColors=shuffled(colors);
+      positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
+
+      if(hasAnyValidMove()){
+        found=true;
+        break;
       }
     }
-    const shuffledFree=shuffled(free);
-    const shuffledRest=shuffled(rest);
-    shuffledRest.forEach((color,i)=>{
-      if(shuffledFree[i]) grid[shuffledFree[i].r][shuffledFree[i].c]=color;
-    });
+
+    // 極少數隨機嘗試仍失敗時：建立一個隨機保證解，但位置不是中央固定點。
+    if(!found){
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) grid[r][c]=null;
+
+      const shuffledColors=shuffled(colors);
+      let pairColor=null;
+      const tempCounts=new Map();
+      shuffledColors.forEach(c=>tempCounts.set(c,(tempCounts.get(c)||0)+1));
+      pairColor=[...tempCounts.entries()].find(([,n])=>n>=2)?.[0] || shuffledColors[0];
+
+      let pairTaken=0;
+      const rest=[];
+      for(const c of shuffledColors){
+        if(c===pairColor && pairTaken<2) pairTaken++;
+        else rest.push(c);
+      }
+
+      // 隨機找一個可形成「方塊-空格-方塊」或垂直版本的位置。
+      const candidates=[];
+      for(let r=0;r<ROWS;r++){
+        for(let c=1;c<COLS-1;c++){
+          candidates.push({a:{r,c:c-1}, gap:{r,c}, b:{r,c:c+1}});
+        }
+      }
+      for(let r=1;r<ROWS-1;r++){
+        for(let c=0;c<COLS;c++){
+          candidates.push({a:{r:r-1,c}, gap:{r,c}, b:{r:r+1,c}});
+        }
+      }
+      const chosen=shuffled(candidates)[0];
+      grid[chosen.a.r][chosen.a.c]=pairColor;
+      grid[chosen.b.r][chosen.b.c]=pairColor;
+
+      const reserved=new Set([
+        `${chosen.a.r},${chosen.a.c}`,
+        `${chosen.gap.r},${chosen.gap.c}`,
+        `${chosen.b.r},${chosen.b.c}`
+      ]);
+      const free=shuffled(allPositions.filter(p=>!reserved.has(`${p.r},${p.c}`)));
+      rest.forEach((color,i)=>{
+        if(free[i]) grid[free[i].r][free[i].c]=color;
+      });
+    }
 
     render();
     updateHud();
-    showReshuffleToast(
-      colors.length===2
-        ? "最後一組已重新排列，點中間空格即可消除！"
-        : "死局已重整，可以繼續！"
-    );
-  }
-
-
-  function createFlyOut(el, color, shapeType, clickCenter){
-    const rect=el.getBoundingClientRect();
-    const startX=rect.left;
-    const startY=rect.top;
-    const tileCX=rect.left+rect.width/2;
-    const tileCY=rect.top+rect.height/2;
-
-    let vx=tileCX-clickCenter.x;
-    let vy=tileCY-clickCenter.y;
-    let len=Math.hypot(vx,vy);
-
-    if(len<1){
-      const a=Math.random()*Math.PI*2;
-      vx=Math.cos(a);
-      vy=Math.sin(a);
-      len=1;
-    }
-
-    vx/=len;
-    vy/=len;
-
-    const push=105+Math.random()*38;
-    const endX=vx*push;
-    const directionalY=vy*42;
-    const apexY=-72-Math.random()*28 + directionalY*.22;
-    const endY=18+Math.random()*30 + directionalY;
-    const rot=(vx>=0 ? 1 : -1)*(22+Math.random()*34);
-
-    const fly=document.createElement("div");
-    fly.className="fly-tile";
-    fly.style.left=startX+"px";
-    fly.style.top=startY+"px";
-    fly.style.width=rect.width+"px";
-    fly.style.height=rect.height+"px";
-    fly.style.background=color;
-    fly.style.opacity="1";
-
-    if(shapesEnabled){
-      const shape=document.createElement("span");
-      shape.className="fly-shape";
-      shape.innerHTML=shapeSvg(shapeType || "circle");
-      fly.appendChild(shape);
-    }
-
-    document.body.appendChild(fly);
-    el.style.visibility="hidden";
-
-    const duration=560;
-    const frames=[
-      {transform:"translate3d(0px,0px,0) rotate(0deg)",opacity:1,offset:0},
-      {transform:`translate3d(${endX*.28}px,${apexY*.72}px,0) rotate(${rot*.24}deg)`,opacity:1,offset:.28},
-      {transform:`translate3d(${endX*.62}px,${apexY}px,0) rotate(${rot*.58}deg)`,opacity:1,offset:.55},
-      {transform:`translate3d(${endX*.86}px,${apexY*.52 + endY*.28}px,0) rotate(${rot*.82}deg)`,opacity:1,offset:.78},
-      {transform:`translate3d(${endX}px,${endY}px,0) rotate(${rot}deg)`,opacity:1,offset:1}
-    ];
-
-    const anim=fly.animate(frames,{
-      duration,
-      easing:"linear",
-      fill:"forwards"
-    });
-
-    // 粗略近似同一條拋物線位置，拿來生成尾氣。
-    function pathPoint(t){
-      let x,y;
-      if(t<=.55){
-        const p=t/.55;
-        x=endX*.62*p;
-        y=apexY*(1-(1-p)*(1-p));
-      }else{
-        const p=(t-.55)/.45;
-        x=endX*.62 + (endX*.38)*p;
-        y=apexY + (endY-apexY)*(p*p);
-      }
-      return {x,y};
-    }
-
-    const puffTimer=setInterval(()=>{
-      if(!document.body.contains(fly)){
-        clearInterval(puffTimer);
-        return;
-      }
-      const timing=anim.currentTime ?? 0;
-      const t=Math.max(0,Math.min(1,timing/duration));
-      const p=pathPoint(t);
-
-      // 每次噴 1~2 顆小粒子，稍微往反方向散開。
-      const count=Math.random()<.45 ? 2 : 1;
-      for(let i=0;i<count;i++){
-        const puff=document.createElement("div");
-        puff.className="fly-puff";
-        const size=Math.max(4,rect.width*(.10+Math.random()*.08));
-        const jitterX=(Math.random()-.5)*8;
-        const jitterY=(Math.random()-.5)*8;
-        puff.style.left=(tileCX-size/2+p.x+jitterX)+"px";
-        puff.style.top=(tileCY-size/2+p.y+jitterY)+"px";
-        puff.style.width=size+"px";
-        puff.style.height=size+"px";
-        puff.style.background=color;
-
-        // 尾氣往飛行反方向飄
-        puff.style.setProperty("--px",(-vx*(10+Math.random()*12)+(Math.random()-.5)*8)+"px");
-        puff.style.setProperty("--py",(-vy*(8+Math.random()*10)+6+Math.random()*8)+"px");
-
-        document.body.appendChild(puff);
-        setTimeout(()=>puff.remove(),380);
-      }
-    },48);
-
-    anim.onfinish=()=>{
-      clearInterval(puffTimer);
-      fly.remove();
-    };
-    setTimeout(()=>{
-      clearInterval(puffTimer);
-      fly.remove();
-    },650);
+    showReshuffleToast("死局已隨機重整，找找新的解！");
   }
 
   function resolveMove(r,c){
@@ -1217,12 +1127,21 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
 
 
   function setMode(mode){
-    if(playing) return;
+    // 模式切換永遠視為新的一局，不沿用上一局結束盤面。
+    playing=false;
+    cancelAnimationFrame(raf);
+    stopBgm();
+
     gameMode=mode;
     localStorage.setItem("ct-mode",mode);
     timedModeBtn.classList.toggle("active",mode==="timed");
     endlessModeBtn.classList.toggle("active",mode==="endless");
-    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
+    modeHint.textContent = mode==="timed"
+      ? "點錯會扣 10 秒。"
+      : "沒有時間限制，點錯會讓遊玩時間 +10 秒；遇到死局會自動重整盤面。";
+
+    // 強制建立新盤面並重置分數 / 時間 / 剩餘方塊。
+    makeBoard();
     buildIntro(true);
   }
 
