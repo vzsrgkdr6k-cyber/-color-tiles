@@ -227,7 +227,7 @@ button{font:inherit}
       <label class="small" for="sfxVolume">音效音量</label>
       <input id="sfxVolume" type="range" min="0" max="100" value="55" style="width:100%">
     </div>
-    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊已經沒有任何合法消除方式，系統會自動重整剩餘盤面，確保可以繼續直到清盤。</span></div>
+    <div class="notice"><strong>♾ 無限模式防死局</strong><br><span class="small">如果剩餘方塊沒有任何合法消除方式，系統會自動移動並重整剩餘方塊；最後兩顆也會排成「方塊－空格－方塊」，確保能消到 0。</span></div>
     <div class="notice"><strong>◆ 圖形辨識</strong><br><span class="small">開啟後，每種顏色固定搭配鏤空線框圖形；包含圈、叉、三角、方框等，同色永遠同圖形。</span></div>
     <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
 
@@ -674,78 +674,72 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function guaranteeEndlessMove(){
     if(gameMode!=="endless" || !playing || tilesLeft===0) return;
-
     if(hasAnyValidMove()) return;
 
-    // 如果只剩 1 顆，任何規則下都無法再形成一組；直接視為最後整理完成。
-    if(tilesLeft===1){
-      for(let r=0;r<ROWS;r++){
-        for(let c=0;c<COLS;c++){
-          if(grid[r][c]){
-            grid[r][c]=null;
-            score++;
-            tilesLeft=0;
-            updateCell(r,c);
-            updateHud();
-            showReshuffleToast("最後 1 顆自動整理完成！");
-            setTimeout(()=>finish(true),450);
-            return;
-          }
-        }
-      }
+    const oldPositions=occupiedPositions();
+    let colors=oldPositions.map(p=>grid[p.r][p.c]);
+
+    // 清空剩餘盤面，接下來會把剩餘方塊「移動」到保證能消的位置。
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++) grid[r][c]=null;
     }
 
-    const positions=occupiedPositions();
-    let colors=positions.map(p=>grid[p.r][p.c]);
-    colors=forcePairableColors(colors);
-
-    // 先嘗試單純洗牌多次，保留現有色彩數量。
-    for(let attempt=0;attempt<160;attempt++){
-      const shuffledColors=shuffled(colors);
-      positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
-      if(hasAnyValidMove()){
-        render();
-        showReshuffleToast();
-        updateHud();
-        return;
-      }
+    // 如果只剩 1 顆，直接視為最後整理完成。
+    if(colors.length===1){
+      score++;
+      tilesLeft=0;
+      render();
+      updateHud();
+      showReshuffleToast("最後 1 顆自動整理完成！");
+      setTimeout(()=>finish(true),450);
+      return;
     }
 
-    // 若隨機洗牌仍找不到解，建立一個保證有解的局部結構。
-    // 找一個空白格，讓其左右最近方塊為同色。
-    const empties=[];
+    // 確保至少有一對同色。
+    const counts=new Map();
+    colors.forEach(c=>counts.set(c,(counts.get(c)||0)+1));
+    let pairColor=[...counts.entries()].find(([,n])=>n>=2)?.[0];
+    if(!pairColor){
+      colors[1]=colors[0];
+      pairColor=colors[0];
+    }
+
+    // 取出兩顆同色，固定放成「方塊－空格－方塊」。
+    // 玩家點中間空格即可消除，避免最後兩顆相鄰卻無法點。
+    let pair=[];
+    const rest=[];
+    for(const color of colors){
+      if(color===pairColor && pair.length<2) pair.push(color);
+      else rest.push(color);
+    }
+
+    const centerR=Math.floor(ROWS/2);
+    const centerC=Math.floor(COLS/2);
+
+    grid[centerR][centerC-1]=pair[0];
+    grid[centerR][centerC+1]=pair[1];
+
+    // 其餘方塊隨機放到其他格子，但保留中間可點的空白格。
+    const free=[];
     for(let r=0;r<ROWS;r++){
       for(let c=0;c<COLS;c++){
-        if(grid[r][c]===null) empties.push({r,c});
+        if(r===centerR && (c===centerC-1 || c===centerC || c===centerC+1)) continue;
+        free.push({r,c});
       }
     }
-
-    // 再隨機散佈一次。
-    const shuffledColors=shuffled(colors);
-    positions.forEach((p,i)=>grid[p.r][p.c]=shuffledColors[i]);
-
-    let made=false;
-    outer:
-    for(const e of empties){
-      const left=nearest(e.r,e.c,0,-1);
-      const right=nearest(e.r,e.c,0,1);
-      if(left && right){
-        grid[right.r][right.c]=grid[left.r][left.c];
-        made=true;
-        break outer;
-      }
-      const up=nearest(e.r,e.c,-1,0);
-      const down=nearest(e.r,e.c,1,0);
-      if(up && down){
-        grid[down.r][down.c]=grid[up.r][up.c];
-        made=true;
-        break outer;
-      }
-    }
+    const shuffledFree=shuffled(free);
+    const shuffledRest=shuffled(rest);
+    shuffledRest.forEach((color,i)=>{
+      if(shuffledFree[i]) grid[shuffledFree[i].r][shuffledFree[i].c]=color;
+    });
 
     render();
-    showReshuffleToast(made ? "死局已重整，可以繼續！" : "盤面已重新整理");
     updateHud();
+    showReshuffleToast(
+      colors.length===2
+        ? "最後一組已重新排列，點中間空格即可消除！"
+        : "死局已重整，可以繼續！"
+    );
   }
 
   function resolveMove(r,c){
