@@ -164,7 +164,7 @@ button{font:inherit}
       <li>完全沒消到方塊會扣 10 秒。</li>
     </ol>
     <div class="notice">
-      <strong>音效設定</strong><br>
+      <strong>音效 / Boss BGM</strong><br>
       <label class="small" for="bgmVolume">BGM 音量</label>
       <input id="bgmVolume" type="range" min="0" max="100" value="28" style="width:100%">
       <label class="small" for="sfxVolume">音效音量</label>
@@ -233,8 +233,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ===== Supabase 設定 =====
   // 建立 Supabase 專案後，把這兩個值換掉即可啟用真正的線上排行榜。
-  const SUPABASE_URL = "YOUR_SUPABASE_URL";
-  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+  const SUPABASE_URL = "https://vhbtofepzrpkxpsqipqh.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_1BA75QCtKLIHTUBAxYBxKA_aNjrawbC";
   const SUPABASE_TABLE = "color_tiles_scores";
 
   function onlineConfigured(){
@@ -336,14 +336,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
 
-  // 8-bit 晶片音樂：方波主旋律 + 簡單低音
+  // 原創高速工業 / 晶片音樂風格 BGM。
+  // 方向：緊張的機械感 Boss 戰、切分節奏、方波 lead，不使用任何既有遊戲歌曲旋律。
   const melody = [
-    659,784,880,784,659,523,587,659,
-    784,880,988,880,784,659,587,523,
-    523,659,784,659,587,523,494,523,
-    587,659,784,880,784,659,587,659
+    659,659,784,932, 880,784,659,587,
+    659,784,988,932, 784,659,587,523,
+    740,740,880,1047, 988,880,740,659,
+    587,659,784,880, 784,698,659,587,
+    659,784,932,1175, 1047,932,784,659,
+    698,831,988,1109, 988,831,740,659
   ];
-  const bass = [131,131,147,147,165,165,147,147];
+  const bass = [82.41,82.41,98.00,110.00, 82.41,123.47,110.00,98.00];
 
   function chipNote(freq, dur=.16, vol=.045, when=0, type="square", target=bgmGain){
     if(!ensureAudio() || !target) return;
@@ -363,13 +366,36 @@ document.addEventListener("DOMContentLoaded", () => {
   function bgmPulse(){
     if(!playing || !bgmEnabled || !ensureAudio()) return;
     const i = bgmStep % melody.length;
-    chipNote(melody[i], .13, .040, 0, "square", bgmGain);
-    if(i % 4 === 0){
-      chipNote(bass[Math.floor(i/4)%bass.length], .28, .035, 0, "square", bgmGain);
-      chipNote(bass[Math.floor(i/4)%bass.length]*2, .09, .018, .12, "square", bgmGain);
+    const beat = i % 16;
+
+    // 主旋律：短促方波，營造機械切分感
+    chipNote(melody[i], .095, .036, 0, "square", bgmGain);
+
+    // 每兩拍加入低八度影子，讓旋律更厚
+    if(i % 2 === 0){
+      chipNote(melody[i]/2, .075, .014, .015, "square", bgmGain);
     }
-    // 每 8 步加一個高音點綴
-    if(i % 8 === 7) chipNote(melody[i]*2, .07, .018, .02, "square", bgmGain);
+
+    // 低音：強烈八分音符 pulse
+    if(i % 2 === 0){
+      const b=bass[Math.floor(i/4)%bass.length];
+      chipNote(b, .14, .040, 0, "square", bgmGain);
+      chipNote(b*2, .055, .015, .08, "square", bgmGain);
+    }
+
+    // 模擬 8-bit 鼓：低頻 kick + 高頻 noise-like tick
+    if(beat===0 || beat===4 || beat===8 || beat===12){
+      chipNote(58, .07, .050, 0, "square", bgmGain);
+    }
+    if(beat===2 || beat===6 || beat===10 || beat===14){
+      chipNote(1800, .025, .012, 0, "square", bgmGain);
+    }
+
+    // 每小節尾端向上衝一下
+    if(beat===15){
+      chipNote(melody[i]*2, .055, .020, .015, "square", bgmGain);
+    }
+
     bgmStep++;
   }
 
@@ -379,7 +405,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ensureAudio();
     bgmStep=0;
     bgmPulse();
-    bgmTimer=setInterval(bgmPulse, 180);
+    bgmTimer=setInterval(bgmPulse, 145);
   }
 
   function stopBgm(){
@@ -474,10 +500,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const clicked=boardEl.children[r*COLS+c];
     if(remove.length===0){
-      if(gameMode === "timed") remaining=Math.max(0,remaining-10);
+      if(gameMode === "timed"){
+        remaining=Math.max(0,remaining-10);
+      }else{
+        elapsed += 10;
+      }
       clicked.classList.add("bad");
       setTimeout(()=>clicked.classList.remove("bad"),350);
-      if(gameMode === "timed") showPenalty(clicked);
+      showPenalty(clicked, gameMode === "timed" ? "-10 秒" : "+10 秒");
       playBad();
       if(gameMode === "timed" && remaining<=0) finish(false);
       updateHud();
@@ -506,11 +536,11 @@ document.addEventListener("DOMContentLoaded", () => {
     },190);
   }
 
-  function showPenalty(el){
+  function showPenalty(el, label="-10 秒"){
     const rect=el.getBoundingClientRect();
     const p=document.createElement("div");
     p.className="penalty";
-    p.textContent="-10 秒";
+    p.textContent=label;
     p.style.left=(rect.left+rect.width/2)+"px";
     p.style.top=(rect.top)+"px";
     document.body.appendChild(p);
@@ -585,7 +615,7 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     const savedName = currentPlayerName || "";
     overlay.querySelector(".dialog").innerHTML = `
       <h2>${gameMode==="timed" ? "120 秒模式" : "無限模式"}</h2>
-      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會消除。${gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，慢慢把盤面清完。"}</p>
+      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會消除。${gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯一次會讓通關時間 +10 秒。"}</p>
       <label for="startNickname" style="display:block;text-align:left;font-size:13px;color:var(--muted);margin-top:12px">排行榜暱稱</label>
       <input class="name-input" id="startNickname" maxlength="12" placeholder="輸入暱稱" value="${escapeHtml(savedName)}">
       <button class="btn primary" id="startBtn2" type="button">${gameMode==="timed" ? "開始 120 秒" : "開始無限模式"}</button>
@@ -609,7 +639,7 @@ playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; score
     localStorage.setItem("ct-mode",mode);
     timedModeBtn.classList.toggle("active",mode==="timed");
     endlessModeBtn.classList.toggle("active",mode==="endless");
-    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯不扣時間。";
+    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯會讓遊玩時間 +10 秒。";
     makeBoard();
     buildIntro(true);
   }
@@ -759,7 +789,7 @@ bgmBtn.addEventListener("click", ()=>{
   updateAudioButtons();
   timedModeBtn.classList.toggle("active",gameMode==="timed");
   endlessModeBtn.classList.toggle("active",gameMode==="endless");
-  modeHint.textContent = gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯不扣時間。";
+  modeHint.textContent = gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，但點錯會讓遊玩時間 +10 秒。";
   renderLeaderboard();
   makeBoard();
   buildIntro(true);
