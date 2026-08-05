@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Color Tiles 夜間版</title>
+<style>
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#20242d; --text:#f4f6fb;
+  --muted:#9da6b5; --line:#313745; --empty:#151922; --empty2:#1a1f29;
+  --accent:#8ab4ff; --danger:#ff6b6b; --success:#73d13d; --shadow:0 18px 60px rgba(0,0,0,.28);
+}
+:root[data-theme="light"]{
+  --bg:#eef1f5; --panel:#ffffff; --panel2:#f5f7fa; --text:#16181d;
+  --muted:#657080; --line:#d7dce4; --empty:#f3f5f8; --empty2:#e9edf2;
+  --accent:#376fd4; --danger:#d83b3b; --success:#389e0d; --shadow:0 18px 60px rgba(27,39,60,.13);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}
+body{min-height:100vh;padding:18px;display:flex;justify-content:center}
+button{font:inherit}
+.app{width:min(1180px,100%);display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}
+.main{padding:18px}
+.topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:14px}
+.title-wrap h1{font-size:clamp(22px,3vw,34px);margin:0;font-weight:800;letter-spacing:.02em}
+.title-wrap p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:12px;padding:10px 13px;cursor:pointer;transition:.15s transform,.15s background}
+.btn:hover{transform:translateY(-1px)}
+.btn.primary{background:var(--accent);color:#09111e;border-color:transparent;font-weight:800}
+:root[data-theme="light"] .btn.primary{color:#fff}
+.hud{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.stat{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:10px 13px}
+.stat .label{font-size:12px;color:var(--muted)}
+.stat .value{font-size:26px;font-weight:800;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat.time.danger .value{color:var(--danger)}
+.board-wrap{position:relative;overflow:auto;padding:10px;background:var(--panel2);border-radius:18px;border:1px solid var(--line)}
+#board{
+  --cols:21;
+  width:min(100%,900px);
+  min-width:620px;
+  aspect-ratio:21 / 13;
+  display:grid;
+  grid-template-columns:repeat(var(--cols),1fr);
+  gap:2px;
+  margin:auto;
+  user-select:none;
+  touch-action:manipulation;
+}
+.cell{
+  border:0;min-width:0;position:relative;border-radius:4px;
+  background:var(--empty);cursor:pointer;outline:none;padding:0;
+  transition:transform .08s,filter .12s,opacity .16s,background .12s;
+}
+.cell:nth-child(even){background:var(--empty2)}
+.cell.empty:hover{filter:brightness(1.18)}
+.cell.tile{cursor:default;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),inset 0 -3px 0 rgba(0,0,0,.16)}
+.cell.tile::after{content:"";position:absolute;inset:16%;border-radius:30%;border:2px solid rgba(255,255,255,.15)}
+.cell.removing{animation:pop .22s ease forwards}
+.cell.bad{animation:bad .32s ease}
+.cell.good{animation:good .28s ease}
+@keyframes pop{60%{transform:scale(1.25);filter:brightness(1.6)}100%{transform:scale(.05);opacity:0}}
+@keyframes bad{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+@keyframes good{50%{transform:scale(.82);filter:brightness(1.5)}}
+.side{padding:18px;position:sticky;top:18px}
+.side h2{margin:0 0 12px;font-size:18px}
+.side p,.side li{color:var(--muted);line-height:1.7;font-size:14px}
+.side ol{padding-left:20px;margin:0 0 16px}
+.notice{border:1px solid var(--line);background:var(--panel2);border-radius:14px;padding:12px 14px;margin-top:14px}
+.notice strong{color:var(--text)}
+.small{font-size:12px;color:var(--muted)}
+.overlay{
+  position:absolute;inset:10px;display:flex;align-items:center;justify-content:center;
+  background:rgba(7,9,12,.76);backdrop-filter:blur(4px);border-radius:14px;z-index:4;
+}
+.overlay[hidden]{display:none}
+.dialog{width:min(420px,88%);padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:18px;text-align:center;box-shadow:var(--shadow)}
+.dialog h2{margin:0 0 8px;font-size:28px}
+.dialog p{color:var(--muted);line-height:1.6}
+.dialog .big-score{font-size:54px;font-weight:900;margin:6px 0}
+.penalty{position:fixed;z-index:20;pointer-events:none;font-size:28px;font-weight:900;color:var(--danger);text-shadow:0 3px 12px rgba(0,0,0,.5);animation:floatUp .7s ease forwards}
+@keyframes floatUp{from{opacity:1;transform:translate(-50%,-10px)}to{opacity:0;transform:translate(-50%,-55px)}}
+@media(max-width:850px){
+  body{padding:10px}
+  .app{grid-template-columns:1fr}
+  .side{position:static}
+  .main{padding:12px}
+  .topbar{align-items:flex-start}
+  #board{min-width:560px}
+}
+@media(max-width:520px){
+  .topbar{display:block}.actions{justify-content:flex-start;margin-top:12px}
+  .hud{gap:6px}.stat{padding:8px}.stat .value{font-size:22px}
+  #board{min-width:520px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <main class="card main">
+    <div class="topbar">
+      <div class="title-wrap">
+        <h1>Color Tiles 夜間版</h1>
+        <p>找出上下左右最近的同色方塊，把它們消掉。 <span id="jsStatus" style="font-size:12px;color:var(--muted)">載入中…</span></p>
+      </div>
+      <div class="actions">
+        <button class="btn" id="themeBtn" type="button">☀️ 淺色模式</button>
+        <button class="btn primary" id="restartBtn" type="button">重新開始</button>
+      </div>
+    </div>
+
+    <section class="hud">
+      <div class="stat"><div class="label">分數</div><div class="value" id="score">0</div></div>
+      <div class="stat time" id="timeBox"><div class="label">剩餘時間</div><div class="value" id="time">120.0</div></div>
+      <div class="stat"><div class="label">剩餘方塊</div><div class="value" id="tilesLeft">200</div></div>
+    </section>
+
+    <div class="board-wrap" id="boardWrap">
+      <div id="board" aria-label="Color Tiles 遊戲盤"></div>
+      <div class="overlay" id="overlay">
+        <div class="dialog">
+          <h2>準備好了嗎？</h2>
+          <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會被消除。</p>
+          <button class="btn primary" id="startBtn" type="button">開始 120 秒</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <aside class="card side">
+    <h2>玩法</h2>
+    <ol>
+      <li>只能點空白格。</li>
+      <li>系統會從你點的位置往上、下、左、右，各找最近的一個彩色方塊。</li>
+      <li>這些最近方塊中，只要有「相同顏色的一組」，相同顏色的方塊就會一起消失。</li>
+      <li>每消掉 1 個方塊得 1 分。</li>
+      <li>完全沒消到方塊會扣 10 秒。</li>
+    </ol>
+    <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
+    <div class="notice"><strong>這版盤面</strong><br><span class="small">200 個彩色方塊、120 秒。方塊配置每局隨機產生。</span></div>
+  </aside>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+
+  const ROWS = 13, COLS = 21, TILE_COUNT = 200, START_TIME = 120;
+  const COLORS = [
+    "#ff5f57","#ff9f1c","#ffd93d","#67d34a","#1fc7a6",
+    "#28a9ff","#4d73ff","#9657ff","#e65cff","#ff6fae"
+  ];
+  const boardEl = document.getElementById("board");
+  const scoreEl = document.getElementById("score");
+  const timeEl = document.getElementById("time");
+  const tilesLeftEl = document.getElementById("tilesLeft");
+  const timeBox = document.getElementById("timeBox");
+  const overlay = document.getElementById("overlay");
+  const startBtn = document.getElementById("startBtn");
+  const restartBtn = document.getElementById("restartBtn");
+  const themeBtn = document.getElementById("themeBtn");
+  const boardWrap = document.getElementById("boardWrap");
+
+  let grid=[], score=0, tilesLeft=TILE_COUNT, remaining=START_TIME;
+  let playing=false, raf=0, lastTs=0, frozenScore=null;
+
+  document.documentElement.dataset.theme = localStorage.getItem("ct-theme") || "dark";
+  updateThemeButton();
+
+  function shuffled(a){
+    a=[...a];
+    for(let i=a.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [a[i],a[j]]=[a[j],a[i]];
+    }
+    return a;
+  }
+
+  function makeBoard(){
+    grid = Array.from({length:ROWS},()=>Array(COLS).fill(null));
+    const cells = shuffled(Array.from({length:ROWS*COLS},(_,i)=>i)).slice(0,TILE_COUNT);
+
+    // 10 種顏色各 20 顆，接近經典版本的配置。
+    const bag = shuffled(COLORS.flatMap(c=>Array(20).fill(c)));
+    cells.forEach((idx,i)=>{
+      const r=Math.floor(idx/COLS), c=idx%COLS;
+      grid[r][c]=bag[i];
+    });
+    score=0; tilesLeft=TILE_COUNT; remaining=START_TIME; frozenScore=null;
+    render();
+    updateHud();
+  }
+
+  function render(){
+    boardEl.style.setProperty("--cols", COLS);
+    boardEl.innerHTML="";
+    for(let r=0;r<ROWS;r++){
+      for(let c=0;c<COLS;c++){
+        const b=document.createElement("button");
+        b.type="button";
+        b.className="cell " + (grid[r][c] ? "tile" : "empty");
+        b.dataset.r=r; b.dataset.c=c;
+        if(grid[r][c]) b.style.background=grid[r][c];
+        b.setAttribute("aria-label", grid[r][c] ? "彩色方塊" : `空白格 ${r+1}, ${c+1}`);
+        boardEl.appendChild(b);
+      }
+    }
+  }
+
+  function updateCell(r,c){
+    const el=boardEl.children[r*COLS+c];
+    if(!el) return;
+    if(grid[r][c]){
+      el.className="cell tile";
+      el.style.background=grid[r][c];
+    }else{
+      el.className="cell empty";
+      el.style.background="";
+    }
+  }
+
+  function nearest(r,c,dr,dc){
+    let rr=r+dr, cc=c+dc;
+    while(rr>=0&&rr<ROWS&&cc>=0&&cc<COLS){
+      if(grid[rr][cc]) return {r:rr,c:cc,color:grid[rr][cc]};
+      rr+=dr; cc+=dc;
+    }
+    return null;
+  }
+
+  function resolveMove(r,c){
+    if(!playing || grid[r][c]) return;
+
+    const around=[
+      nearest(r,c,-1,0), nearest(r,c,1,0),
+      nearest(r,c,0,-1), nearest(r,c,0,1)
+    ].filter(Boolean);
+
+    const groups = new Map();
+    around.forEach(x=>{
+      if(!groups.has(x.color)) groups.set(x.color,[]);
+      groups.get(x.color).push(x);
+    });
+
+    const remove = [];
+    for(const arr of groups.values()) if(arr.length>=2) remove.push(...arr);
+
+    const clicked=boardEl.children[r*COLS+c];
+    if(remove.length===0){
+      remaining=Math.max(0,remaining-10);
+      clicked.classList.add("bad");
+      setTimeout(()=>clicked.classList.remove("bad"),350);
+      showPenalty(clicked);
+      if(remaining<=0) finish(false);
+      updateHud();
+      return;
+    }
+
+    clicked.classList.add("good");
+    const unique=[...new Map(remove.map(x=>[`${x.r},${x.c}`,x])).values()];
+    unique.forEach(x=>{
+      const el=boardEl.children[x.r*COLS+x.c];
+      el.classList.add("removing");
+    });
+
+    setTimeout(()=>{
+      unique.forEach(x=>{
+        if(grid[x.r][x.c]){
+          grid[x.r][x.c]=null;
+          score++;
+          tilesLeft--;
+          updateCell(x.r,x.c);
+        }
+      });
+      updateHud();
+      if(tilesLeft===0) finish(true);
+    },190);
+  }
+
+  function showPenalty(el){
+    const rect=el.getBoundingClientRect();
+    const p=document.createElement("div");
+    p.className="penalty";
+    p.textContent="-10 秒";
+    p.style.left=(rect.left+rect.width/2)+"px";
+    p.style.top=(rect.top)+"px";
+    document.body.appendChild(p);
+    setTimeout(()=>p.remove(),720);
+  }
+
+  function updateHud(){
+    scoreEl.textContent = frozenScore ?? score;
+    tilesLeftEl.textContent=tilesLeft;
+    timeEl.textContent=Math.max(0,remaining).toFixed(1);
+    timeBox.classList.toggle("danger",remaining<=20);
+  }
+
+  function tick(ts){
+    if(!playing) return;
+    if(!lastTs) lastTs=ts;
+    remaining -= (ts-lastTs)/1000;
+    lastTs=ts;
+    if(remaining<=0){
+      remaining=0;
+      updateHud();
+      finish(false);
+      return;
+    }
+    updateHud();
+    raf=requestAnimationFrame(tick);
+  }
+
+  function start(){
+    playing=true; remaining=START_TIME; lastTs=0; frozenScore=null;
+    overlay.hidden=true;
+    updateHud();
+    cancelAnimationFrame(raf);
+    raf=requestAnimationFrame(tick);
+  }
+
+  function finish(cleared){
+    if(!playing) return;
+    playing=false;
+    cancelAnimationFrame(raf);
+    frozenScore=score;
+    updateHud();
+    overlay.hidden=false;
+    overlay.querySelector(".dialog").innerHTML = `
+      <h2>${cleared ? "全部清完！" : "時間到！"}</h2>
+      <p>${cleared ? `你在時間內清掉了全部 ${TILE_COUNT} 個方塊。` : "本局分數"}</p>
+      <div class="big-score">${score}</div>
+      <p>剩餘方塊：${tilesLeft}</p>
+      <button class="btn primary" id="againBtn" type="button">再玩一局</button>
+    `;
+    document.getElementById("againBtn").onclick=()=>{makeBoard(); buildIntro(false); start();};
+  }
+
+  function buildIntro(show=true){
+    overlay.querySelector(".dialog").innerHTML = `
+      <h2>準備好了嗎？</h2>
+      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會被消除。</p>
+      <button class="btn primary" id="startBtn2" type="button">開始 120 秒</button>
+    `;
+    document.getElementById("startBtn2").onclick=start;
+    overlay.hidden=!show;
+  }
+
+  function restart(){
+    playing=false;
+    cancelAnimationFrame(raf);
+    makeBoard();
+    buildIntro(true);
+  }
+
+  function updateThemeButton(){
+    const light=document.documentElement.dataset.theme==="light";
+    themeBtn.textContent=light ? "🌙 黑暗模式" : "☀️ 淺色模式";
+  }
+
+  boardEl.addEventListener("click",e=>{
+    const el=e.target.closest(".cell");
+    if(!el) return;
+    resolveMove(+el.dataset.r,+el.dataset.c);
+  });
+
+  restartBtn.addEventListener("click", restart);
+  startBtn.addEventListener("click", start);
+  themeBtn.addEventListener("click", ()=>{
+    const next=document.documentElement.dataset.theme==="dark" ? "light" : "dark";
+    document.documentElement.dataset.theme=next;
+    localStorage.setItem("ct-theme",next);
+    updateThemeButton();
+  });
+
+  makeBoard();
+
+  const jsStatus = document.getElementById("jsStatus");
+  if (jsStatus) {
+    jsStatus.textContent = "✓ 遊戲已載入";
+    jsStatus.style.color = "var(--success)";
+  }
+});
+</script>
+</body>
+</html>
