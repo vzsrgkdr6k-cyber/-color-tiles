@@ -1049,62 +1049,159 @@ document.addEventListener("DOMContentLoaded", () => {
     showReshuffleToast("死局已隨機重整，找找新的解！");
   }
 
+
+  function createFlyOut(el,color,shapeType,clickCenter){
+    const rect=el.getBoundingClientRect();
+    const tileCX=rect.left+rect.width/2;
+    const tileCY=rect.top+rect.height/2;
+
+    // 由「玩家點的空格」指向被消除方塊，決定往外飛的方向。
+    let vx=tileCX-clickCenter.x;
+    let vy=tileCY-clickCenter.y;
+    const len=Math.hypot(vx,vy)||1;
+    vx/=len; vy/=len;
+
+    const distance=105+Math.random()*35;
+    const endX=vx*distance;
+    const endY=18+vy*34;
+    const apexY=-78-Math.random()*24;
+    const rot=(vx>=0?1:-1)*(22+Math.random()*32);
+
+    const fly=document.createElement("div");
+    fly.className="fly-tile";
+    fly.style.left=rect.left+"px";
+    fly.style.top=rect.top+"px";
+    fly.style.width=rect.width+"px";
+    fly.style.height=rect.height+"px";
+    fly.style.background=color;
+    fly.style.opacity="1";
+
+    if(shapesEnabled){
+      const shape=document.createElement("span");
+      shape.className="fly-shape";
+      shape.innerHTML=shapeSvg(shapeType||"circle");
+      fly.appendChild(shape);
+    }
+
+    document.body.appendChild(fly);
+
+    // 原本格子隱藏，飛出的複製體正好從原格位置開始。
+    el.style.visibility="hidden";
+
+    const duration=560;
+    const keyframes=[
+      {transform:"translate3d(0,0,0) rotate(0deg)",opacity:1,offset:0},
+      {transform:`translate3d(${endX*.32}px,${apexY*.75}px,0) rotate(${rot*.28}deg)`,opacity:1,offset:.32},
+      {transform:`translate3d(${endX*.62}px,${apexY}px,0) rotate(${rot*.60}deg)`,opacity:1,offset:.58},
+      {transform:`translate3d(${endX}px,${endY}px,0) rotate(${rot}deg)`,opacity:1,offset:1}
+    ];
+
+    let anim=null;
+    if(typeof fly.animate==="function"){
+      anim=fly.animate(keyframes,{duration,easing:"linear",fill:"forwards"});
+    }else{
+      fly.style.transition="transform .56s linear";
+      requestAnimationFrame(()=>{
+        fly.style.transform=`translate3d(${endX}px,${endY}px,0) rotate(${rot}deg)`;
+      });
+    }
+
+    // 簡單拋物線位置，用來生尾氣粒子。
+    const pointAt=t=>{
+      const x=endX*t;
+      const y=4*(apexY-endY/2)*t*(1-t)+endY*t;
+      return {x,y};
+    };
+
+    const start=performance.now();
+    const puffTimer=setInterval(()=>{
+      const t=Math.min(1,(performance.now()-start)/duration);
+      const p=pointAt(t);
+
+      for(let i=0;i<(Math.random()<.35?2:1);i++){
+        const puff=document.createElement("div");
+        puff.className="fly-puff";
+        const size=Math.max(4,rect.width*(.10+Math.random()*.07));
+        puff.style.left=(tileCX+p.x-size/2+(Math.random()-.5)*6)+"px";
+        puff.style.top=(tileCY+p.y-size/2+(Math.random()-.5)*6)+"px";
+        puff.style.width=size+"px";
+        puff.style.height=size+"px";
+        puff.style.background=color;
+        puff.style.setProperty("--px",(-vx*(10+Math.random()*10)+(Math.random()-.5)*6)+"px");
+        puff.style.setProperty("--py",(6-vy*(7+Math.random()*8))+"px");
+        document.body.appendChild(puff);
+        setTimeout(()=>puff.remove(),380);
+      }
+      if(t>=1) clearInterval(puffTimer);
+    },55);
+
+    if(anim){
+      anim.onfinish=()=>{
+        clearInterval(puffTimer);
+        fly.remove();
+      };
+    }
+    setTimeout(()=>{
+      clearInterval(puffTimer);
+      fly.remove();
+    },650);
+  }
+
   function resolveMove(r,c){
     if(!playing || grid[r][c]) return;
-
     const remove=getRemovalsAt(r,c);
-
     const clicked=boardEl.children[r*COLS+c];
+
     if(remove.length===0){
-      if(gameMode === "timed"){
-        remaining=Math.max(0,remaining-10);
-      }else{
-        elapsed += 10;
-      }
+      if(gameMode==="timed") remaining=Math.max(0,remaining-10);
+      else elapsed+=10;
       clicked.classList.add("bad");
       setTimeout(()=>clicked.classList.remove("bad"),350);
-      showPenalty(clicked, gameMode === "timed" ? "-10 秒" : "+10 秒");
-      playBad();
-      if(gameMode === "timed" && remaining<=0) finish(false);
+      showPenalty(clicked,gameMode==="timed"?"-10 秒":"+10 秒");
+      try{playBad();}catch(e){console.warn(e);}
+      if(gameMode==="timed"&&remaining<=0) finish(false);
       updateHud();
       return;
     }
 
-    clicked.classList.add("good");
     const unique=[...new Map(remove.map(x=>[`${x.r},${x.c}`,x])).values()];
-    playSuccess(unique.length);
     const clickedRect=clicked.getBoundingClientRect();
     const clickCenter={
       x:clickedRect.left+clickedRect.width/2,
       y:clickedRect.top+clickedRect.height/2
     };
 
+    const animationItems=unique.map(x=>({
+      el:boardEl.children[x.r*COLS+x.c],
+      color:grid[x.r][x.c],
+      shape:shapeForColor.get(grid[x.r][x.c])
+    }));
+
+    // 先完成真正的遊戲消除，再做動畫。
     unique.forEach(x=>{
-      const el=boardEl.children[x.r*COLS+x.c];
-      createFlyOut(
-        el,
-        grid[x.r][x.c],
-        shapeForColor.get(grid[x.r][x.c]),
-        clickCenter
-      );
+      if(grid[x.r][x.c]){
+        grid[x.r][x.c]=null;
+        score++;
+        tilesLeft--;
+      }
+    });
+    updateHud();
+
+    try{playSuccess(unique.length);}catch(e){console.warn("success sound failed",e);}
+    animationItems.forEach(item=>{
+      try{createFlyOut(item.el,item.color,item.shape,clickCenter);}
+      catch(e){console.warn("fly animation failed",e);}
     });
 
     setTimeout(()=>{
-      unique.forEach(x=>{
-        if(grid[x.r][x.c]){
-          grid[x.r][x.c]=null;
-          score++;
-          tilesLeft--;
-          updateCell(x.r,x.c);
-        }
-      });
+      render();
       updateHud();
       if(tilesLeft===0){
         finish(true);
       }else if(gameMode==="endless"){
         setTimeout(guaranteeEndlessMove,120);
       }
-    },120);
+    },100);
   }
 
   function showPenalty(el, label="-10 秒"){
