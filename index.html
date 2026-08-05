@@ -94,6 +94,24 @@ button{font:inherit}
   .hud{gap:6px}.stat{padding:8px}.stat .value{font-size:22px}
   #board{min-width:520px}
 }
+
+.mode-row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}
+.mode-btn{flex:1;min-width:120px;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer}
+.mode-btn.active{background:var(--accent);color:#07101e;border-color:transparent;font-weight:800}
+:root[data-theme="light"] .mode-btn.active{color:#fff}
+.name-input{width:100%;border:1px solid var(--line);background:var(--empty);color:var(--text);border-radius:10px;padding:10px 11px;font:inherit;margin:8px 0 12px}
+.leaderboard{margin-top:10px}
+.lb-tabs{display:flex;gap:6px;margin-bottom:8px}
+.lb-tab{flex:1;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:9px;padding:7px 8px;cursor:pointer;font-size:12px}
+.lb-tab.active{background:var(--accent);color:#07101e;border-color:transparent;font-weight:800}
+:root[data-theme="light"] .lb-tab.active{color:#fff}
+.lb-list{display:grid;gap:6px}
+.lb-row{display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:7px 9px;border:1px solid var(--line);background:var(--panel2);border-radius:9px;font-size:13px}
+.lb-rank{font-weight:900;color:var(--muted)}
+.lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb-score{font-weight:900;font-variant-numeric:tabular-nums}
+.mode-label{font-size:12px;color:var(--muted);margin-top:6px}
+
 </style>
 </head>
 <body>
@@ -114,7 +132,7 @@ button{font:inherit}
 
     <section class="hud">
       <div class="stat"><div class="label">分數</div><div class="value" id="score">0</div></div>
-      <div class="stat time" id="timeBox"><div class="label">剩餘時間</div><div class="value" id="time">120.0</div></div>
+      <div class="stat time" id="timeBox"><div class="label" id="timeLabel">剩餘時間</div><div class="value" id="time">120.0</div></div>
       <div class="stat"><div class="label">剩餘方塊</div><div class="value" id="tilesLeft">200</div></div>
     </section>
 
@@ -124,14 +142,20 @@ button{font:inherit}
         <div class="dialog">
           <h2>準備好了嗎？</h2>
           <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會被消除。</p>
-          <button class="btn primary" id="startBtn" type="button">開始 120 秒</button>
+          <button class="btn primary" id="startBtn" type="button">開始遊戲</button>
         </div>
       </div>
     </div>
   </main>
 
   <aside class="card side">
-    <h2>玩法</h2>
+    <h2>遊戲模式</h2>
+    <div class="mode-row">
+      <button class="mode-btn active" id="timedModeBtn" type="button">⏱ 120 秒</button>
+      <button class="mode-btn" id="endlessModeBtn" type="button">♾ 無限模式</button>
+    </div>
+    <div class="mode-label" id="modeHint">點錯會扣 10 秒。</div>
+<h2>玩法</h2>
     <ol>
       <li>只能點空白格。</li>
       <li>系統會從你點的位置往上、下、左、右，各找最近的一個彩色方塊。</li>
@@ -147,7 +171,24 @@ button{font:inherit}
       <input id="sfxVolume" type="range" min="0" max="100" value="55" style="width:100%">
     </div>
     <div class="notice"><strong>黑暗模式已預設開啟</strong><br><span class="small">右上角可以隨時切回淺色模式，設定會保存在這台裝置。</span></div>
-    <div class="notice"><strong>這版盤面</strong><br><span class="small">200 個彩色方塊、120 秒。方塊配置每局隨機產生。</span></div>
+
+    
+    <div class="notice">
+      <strong>線上排行榜設定</strong><br>
+      <span class="small">這個版本已支援 Supabase。第一次使用要先建立免費資料庫並把 URL / Anon Key 填進 index.html。</span>
+    </div>
+
+    <div class="notice leaderboard">
+      <strong>🌐 線上排行榜 Top 10</strong>
+      <div class="lb-tabs">
+        <button class="lb-tab active" id="lbTimedBtn" type="button">120 秒</button>
+        <button class="lb-tab" id="lbEndlessBtn" type="button">無限模式</button>
+      </div>
+      <div class="small" id="onlineStatus" style="margin:8px 0">檢查線上排行榜連線…</div>
+      <div class="lb-list" id="leaderboardList"></div>
+      <div class="small" style="margin-top:8px">所有玩家共用。需要先設定 Supabase 才會啟用。</div>
+    </div>
+    <div class="notice"><strong>這版盤面</strong><br><span class="small">200 個彩色方塊、10 種顏色。方塊配置每局隨機產生。</span></div>
   </aside>
 </div>
 
@@ -162,6 +203,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const boardEl = document.getElementById("board");
   const scoreEl = document.getElementById("score");
   const timeEl = document.getElementById("time");
+  const timeLabel = document.getElementById("timeLabel");
   const tilesLeftEl = document.getElementById("tilesLeft");
   const timeBox = document.getElementById("timeBox");
   const overlay = document.getElementById("overlay");
@@ -173,9 +215,34 @@ document.addEventListener("DOMContentLoaded", () => {
   const bgmVolume = document.getElementById("bgmVolume");
   const sfxVolume = document.getElementById("sfxVolume");
   const boardWrap = document.getElementById("boardWrap");
+  const timedModeBtn = document.getElementById("timedModeBtn");
+  const endlessModeBtn = document.getElementById("endlessModeBtn");
+  const modeHint = document.getElementById("modeHint");
+  const leaderboardList = document.getElementById("leaderboardList");
+  const onlineStatus = document.getElementById("onlineStatus");
+  const lbTimedBtn = document.getElementById("lbTimedBtn");
+  const lbEndlessBtn = document.getElementById("lbEndlessBtn");
 
   let grid=[], score=0, tilesLeft=TILE_COUNT, remaining=START_TIME;
   let playing=false, raf=0, lastTs=0, frozenScore=null;
+  let gameMode = localStorage.getItem("ct-mode") || "timed";
+  let leaderboardMode = "timed";
+  let elapsed = 0;
+  let scoreSaved = false;
+  let currentPlayerName = localStorage.getItem("ct-player") || "";
+
+  // ===== Supabase 設定 =====
+  // 建立 Supabase 專案後，把這兩個值換掉即可啟用真正的線上排行榜。
+  const SUPABASE_URL = "YOUR_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+  const SUPABASE_TABLE = "color_tiles_scores";
+
+  function onlineConfigured(){
+    return SUPABASE_URL.startsWith("https://") &&
+           !SUPABASE_URL.includes("YOUR_") &&
+           SUPABASE_ANON_KEY &&
+           !SUPABASE_ANON_KEY.includes("YOUR_");
+  }
 
   let audioCtx = null;
   let masterGain = null;
@@ -231,9 +298,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function playSuccess(count=2){
     const base = 520 + Math.min(count,4)*45;
-    tone(base, .11, "triangle", .14, 0);
-    tone(base*1.25, .13, "triangle", .12, .065);
-    if(count >= 3) tone(base*1.5, .14, "sine", .10, .13);
+    tone(base, .09, "square", .14, 0);
+    tone(base*1.25, .10, "square", .12, .065);
+    if(count >= 3) tone(base*1.5, .11, "square", .10, .13);
   }
 
   function playBad(){
@@ -241,7 +308,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
-    osc.type = "sawtooth";
+    osc.type = "square";
     osc.frequency.setValueAtTime(180,t);
     osc.frequency.exponentialRampToValueAtTime(85,t+.22);
     gain.gain.setValueAtTime(.12,t);
@@ -251,9 +318,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function playStart(){
-    tone(440,.12,"sine",.12,0);
-    tone(660,.14,"sine",.12,.09);
-    tone(880,.18,"triangle",.10,.18);
+    tone(440,.10,"square",.12,0);
+    tone(660,.10,"square",.12,.09);
+    tone(880,.14,"square",.10,.18);
   }
 
   function playFinish(cleared){
@@ -268,27 +335,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  const bgmPattern = [
-    [261.63,329.63,392.00],
-    [220.00,277.18,329.63],
-    [246.94,311.13,369.99],
-    [196.00,246.94,293.66],
+
+  // 8-bit 晶片音樂：方波主旋律 + 簡單低音
+  const melody = [
+    659,784,880,784,659,523,587,659,
+    784,880,988,880,784,659,587,523,
+    523,659,784,659,587,523,494,523,
+    587,659,784,880,784,659,587,659
   ];
+  const bass = [131,131,147,147,165,165,147,147];
+
+  function chipNote(freq, dur=.16, vol=.045, when=0, type="square", target=bgmGain){
+    if(!ensureAudio() || !target) return;
+    const t = audioCtx.currentTime + when;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq,t);
+    gain.gain.setValueAtTime(.0001,t);
+    gain.gain.exponentialRampToValueAtTime(vol,t+.008);
+    gain.gain.setValueAtTime(vol,t+Math.max(.01,dur*.55));
+    gain.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    osc.connect(gain); gain.connect(target);
+    osc.start(t); osc.stop(t+dur+.02);
+  }
 
   function bgmPulse(){
     if(!playing || !bgmEnabled || !ensureAudio()) return;
-    const chord = bgmPattern[Math.floor(bgmStep/4)%bgmPattern.length];
-    const note = chord[bgmStep%3];
-    const t = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = note;
-    gain.gain.setValueAtTime(.0001,t);
-    gain.gain.exponentialRampToValueAtTime(.055,t+.03);
-    gain.gain.exponentialRampToValueAtTime(.0001,t+.34);
-    osc.connect(gain); gain.connect(bgmGain);
-    osc.start(t); osc.stop(t+.38);
+    const i = bgmStep % melody.length;
+    chipNote(melody[i], .13, .040, 0, "square", bgmGain);
+    if(i % 4 === 0){
+      chipNote(bass[Math.floor(i/4)%bass.length], .28, .035, 0, "square", bgmGain);
+      chipNote(bass[Math.floor(i/4)%bass.length]*2, .09, .018, .12, "square", bgmGain);
+    }
+    // 每 8 步加一個高音點綴
+    if(i % 8 === 7) chipNote(melody[i]*2, .07, .018, .02, "square", bgmGain);
     bgmStep++;
   }
 
@@ -298,7 +379,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ensureAudio();
     bgmStep=0;
     bgmPulse();
-    bgmTimer=setInterval(bgmPulse, 360);
+    bgmTimer=setInterval(bgmPulse, 180);
   }
 
   function stopBgm(){
@@ -332,7 +413,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const r=Math.floor(idx/COLS), c=idx%COLS;
       grid[r][c]=bag[i];
     });
-    score=0; tilesLeft=TILE_COUNT; remaining=START_TIME; frozenScore=null;
+    score=0; tilesLeft=TILE_COUNT; remaining=START_TIME; elapsed=0; frozenScore=null; scoreSaved=false;
     render();
     updateHud();
   }
@@ -393,12 +474,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const clicked=boardEl.children[r*COLS+c];
     if(remove.length===0){
-      remaining=Math.max(0,remaining-10);
+      if(gameMode === "timed") remaining=Math.max(0,remaining-10);
       clicked.classList.add("bad");
       setTimeout(()=>clicked.classList.remove("bad"),350);
-      showPenalty(clicked);
+      if(gameMode === "timed") showPenalty(clicked);
       playBad();
-      if(remaining<=0) finish(false);
+      if(gameMode === "timed" && remaining<=0) finish(false);
       updateHud();
       return;
     }
@@ -439,27 +520,39 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateHud(){
     scoreEl.textContent = frozenScore ?? score;
     tilesLeftEl.textContent=tilesLeft;
-    timeEl.textContent=Math.max(0,remaining).toFixed(1);
-    timeBox.classList.toggle("danger",remaining<=20);
+    if(gameMode === "timed"){
+      timeLabel.textContent="剩餘時間";
+      timeEl.textContent=Math.max(0,remaining).toFixed(1);
+      timeBox.classList.toggle("danger",remaining<=20);
+    }else{
+      timeLabel.textContent="遊玩時間";
+      const m=Math.floor(elapsed/60), s=Math.floor(elapsed%60);
+      timeEl.textContent=`${m}:${String(s).padStart(2,"0")}`;
+      timeBox.classList.remove("danger");
+    }
   }
 
   function tick(ts){
     if(!playing) return;
     if(!lastTs) lastTs=ts;
-    remaining -= (ts-lastTs)/1000;
+    const dt=(ts-lastTs)/1000;
     lastTs=ts;
-    if(remaining<=0){
-      remaining=0;
-      updateHud();
-      finish(false);
-      return;
+    elapsed += dt;
+    if(gameMode === "timed"){
+      remaining -= dt;
+      if(remaining<=0){
+        remaining=0;
+        updateHud();
+        finish(false);
+        return;
+      }
     }
     updateHud();
     raf=requestAnimationFrame(tick);
   }
 
   function start(){
-    playing=true; remaining=START_TIME; lastTs=0; frozenScore=null;
+playing=true; remaining=START_TIME; elapsed=0; lastTs=0; frozenScore=null; scoreSaved=false;
     overlay.hidden=true;
     updateHud();
     cancelAnimationFrame(raf);
@@ -475,11 +568,12 @@ document.addEventListener("DOMContentLoaded", () => {
     stopBgm();
     playFinish(cleared);
     frozenScore=score;
+    saveLeaderboardScore().then(()=>renderLeaderboard());
     updateHud();
     overlay.hidden=false;
     overlay.querySelector(".dialog").innerHTML = `
       <h2>${cleared ? "全部清完！" : "時間到！"}</h2>
-      <p>${cleared ? `你在時間內清掉了全部 ${TILE_COUNT} 個方塊。` : "本局分數"}</p>
+      <p>${cleared ? `你清掉了全部 ${TILE_COUNT} 個方塊！` : (gameMode==="timed" ? "本局分數" : "無限模式已結束")}</p>
       <div class="big-score">${score}</div>
       <p>剩餘方塊：${tilesLeft}</p>
       <button class="btn primary" id="againBtn" type="button">再玩一局</button>
@@ -488,13 +582,139 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildIntro(show=true){
+    const savedName = currentPlayerName || "";
     overlay.querySelector(".dialog").innerHTML = `
-      <h2>準備好了嗎？</h2>
-      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會被消除。</p>
-      <button class="btn primary" id="startBtn2" type="button">開始 120 秒</button>
+      <h2>${gameMode==="timed" ? "120 秒模式" : "無限模式"}</h2>
+      <p>點擊<strong>沒有方塊的格子</strong>。從該格往上下左右找最近的方塊，只要其中至少兩個是同一顏色，那些同色方塊就會消除。${gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，慢慢把盤面清完。"}</p>
+      <label for="startNickname" style="display:block;text-align:left;font-size:13px;color:var(--muted);margin-top:12px">排行榜暱稱</label>
+      <input class="name-input" id="startNickname" maxlength="12" placeholder="輸入暱稱" value="${escapeHtml(savedName)}">
+      <button class="btn primary" id="startBtn2" type="button">${gameMode==="timed" ? "開始 120 秒" : "開始無限模式"}</button>
     `;
-    document.getElementById("startBtn2").onclick=start;
+    const nick=document.getElementById("startNickname");
+    const btn=document.getElementById("startBtn2");
+    btn.onclick=()=>{
+      const name=(nick.value.trim() || "Player").slice(0,12);
+      currentPlayerName=name;
+      localStorage.setItem("ct-player",name);
+      start();
+    };
+    setTimeout(()=>nick.focus(),50);
     overlay.hidden=!show;
+  }
+
+
+  function setMode(mode){
+    if(playing) return;
+    gameMode=mode;
+    localStorage.setItem("ct-mode",mode);
+    timedModeBtn.classList.toggle("active",mode==="timed");
+    endlessModeBtn.classList.toggle("active",mode==="endless");
+    modeHint.textContent = mode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯不扣時間。";
+    makeBoard();
+    buildIntro(true);
+  }
+
+
+  async function apiRequest(path, options={}){
+    if(!onlineConfigured()) throw new Error("not_configured");
+    const res=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
+      ...options,
+      headers:{
+        "apikey":SUPABASE_ANON_KEY,
+        "Authorization":`Bearer ${SUPABASE_ANON_KEY}`,
+        "Content-Type":"application/json",
+        ...(options.headers||{})
+      }
+    });
+    if(!res.ok){
+      const msg=await res.text();
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    if(res.status===204) return null;
+    const t=await res.text();
+    return t ? JSON.parse(t) : null;
+  }
+
+  async function saveLeaderboardScore(){
+    if(scoreSaved) return;
+    scoreSaved=true;
+    if(!onlineConfigured()){
+      onlineStatus.textContent="尚未設定 Supabase，線上排行榜目前未啟用。";
+      return;
+    }
+    const payload={
+      nickname:(currentPlayerName || "Player").slice(0,12),
+      mode:gameMode,
+      score:score,
+      cleared:tilesLeft===0,
+      elapsed:Math.round(elapsed*10)/10
+    };
+    try{
+      onlineStatus.textContent="正在上傳分數…";
+      await apiRequest(SUPABASE_TABLE,{
+        method:"POST",
+        headers:{"Prefer":"return=minimal"},
+        body:JSON.stringify(payload)
+      });
+      onlineStatus.textContent="✓ 分數已上傳";
+    }catch(e){
+      console.error(e);
+      onlineStatus.textContent="排行榜上傳失敗，請檢查 Supabase 設定。";
+    }
+  }
+
+  async function renderLeaderboard(){
+    lbTimedBtn.classList.toggle("active",leaderboardMode==="timed");
+    lbEndlessBtn.classList.toggle("active",leaderboardMode==="endless");
+
+    if(!onlineConfigured()){
+      onlineStatus.textContent="尚未設定 Supabase。";
+      leaderboardList.innerHTML='<div class="small">完成 Supabase 設定後，這裡會顯示所有玩家的 Top 10。</div>';
+      return;
+    }
+
+    onlineStatus.textContent="載入排行榜…";
+    leaderboardList.innerHTML='<div class="small">讀取中…</div>';
+
+    try{
+      let order;
+      if(leaderboardMode==="timed"){
+        order="score.desc,elapsed.asc";
+      }else{
+        order="cleared.desc,score.desc,elapsed.asc";
+      }
+      const q=`${SUPABASE_TABLE}?select=nickname,score,cleared,elapsed,created_at&mode=eq.${leaderboardMode}&order=${encodeURIComponent(order)}&limit=10`;
+      const list=await apiRequest(q);
+
+      onlineStatus.textContent="✓ 線上排行榜";
+      if(!list || !list.length){
+        leaderboardList.innerHTML='<div class="small">還沒有紀錄，成為第一名吧。</div>';
+        return;
+      }
+
+      leaderboardList.innerHTML=list.map((x,i)=>{
+        let result;
+        if(leaderboardMode==="timed"){
+          result=`${x.score} 分`;
+        }else if(x.cleared){
+          const m=Math.floor(x.elapsed/60), s=Math.floor(x.elapsed%60);
+          result=`✅ ${m}:${String(s).padStart(2,"0")}`;
+        }else{
+          result=`${x.score} 分`;
+        }
+        return `<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name">${escapeHtml(x.nickname || "Player")}</div><div class="lb-score">${result}</div></div>`;
+      }).join("");
+    }catch(e){
+      console.error(e);
+      onlineStatus.textContent="排行榜讀取失敗。";
+      leaderboardList.innerHTML='<div class="small">請檢查 Supabase URL、Anon Key、資料表與 RLS Policy。</div>';
+    }
+  }
+
+  function escapeHtml(s){
+    const div=document.createElement("div");
+    div.textContent=String(s);
+    return div.innerHTML;
   }
 
   function restart(){
@@ -502,7 +722,12 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelAnimationFrame(raf);
     stopBgm();
   
-  bgmBtn.addEventListener("click", ()=>{
+
+  timedModeBtn.addEventListener("click",()=>setMode("timed"));
+  endlessModeBtn.addEventListener("click",()=>setMode("endless"));
+  lbTimedBtn.addEventListener("click",()=>{leaderboardMode="timed";renderLeaderboard();});
+  lbEndlessBtn.addEventListener("click",()=>{leaderboardMode="endless";renderLeaderboard();});
+bgmBtn.addEventListener("click", ()=>{
     bgmEnabled = !bgmEnabled;
     localStorage.setItem("ct-bgm", bgmEnabled ? "on" : "off");
     ensureAudio();
@@ -532,7 +757,12 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   updateAudioButtons();
+  timedModeBtn.classList.toggle("active",gameMode==="timed");
+  endlessModeBtn.classList.toggle("active",gameMode==="endless");
+  modeHint.textContent = gameMode==="timed" ? "點錯會扣 10 秒。" : "沒有時間限制，點錯不扣時間。";
+  renderLeaderboard();
   makeBoard();
+  buildIntro(true);
     buildIntro(true);
   }
 
@@ -548,7 +778,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   restartBtn.addEventListener("click", restart);
-  startBtn.addEventListener("click", start);
+  startBtn.addEventListener("click", ()=>buildIntro(true));
   themeBtn.addEventListener("click", ()=>{
     const next=document.documentElement.dataset.theme==="dark" ? "light" : "dark";
     document.documentElement.dataset.theme=next;
