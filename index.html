@@ -320,6 +320,81 @@ button{font:inherit}
   touch-action:manipulation;
   -webkit-tap-highlight-color:transparent;
 }
+
+
+
+/* ===== 柔和亮面方塊：保留立體感，去除積木厚重感 ===== */
+.cell.tile{
+  border-radius:8px;
+  overflow:hidden;
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.30),
+    inset 0 -1px 1px rgba(0,0,0,.10),
+    0 1px 3px rgba(0,0,0,.20);
+}
+.cell.tile::before{
+  content:"";
+  position:absolute;
+  left:5%;
+  right:5%;
+  top:5%;
+  height:43%;
+  border-radius:7px 7px 50% 50% / 7px 7px 24% 24%;
+  background:linear-gradient(
+    to bottom,
+    rgba(255,255,255,.38) 0%,
+    rgba(255,255,255,.13) 50%,
+    rgba(255,255,255,0) 100%
+  );
+  pointer-events:none;
+  z-index:1;
+}
+.cell.tile::after{display:none}
+.cell.tile .shape-symbol{z-index:3}
+
+/* 飛出動畫也維持相同柔和外觀 */
+.fly-tile{
+  border-radius:8px;
+  overflow:hidden;
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.30),
+    inset 0 -1px 1px rgba(0,0,0,.10),
+    0 4px 10px rgba(0,0,0,.24);
+}
+.fly-tile::before{
+  content:"";
+  position:absolute;
+  left:5%;
+  right:5%;
+  top:5%;
+  height:43%;
+  border-radius:7px 7px 50% 50% / 7px 7px 24% 24%;
+  background:linear-gradient(
+    to bottom,
+    rgba(255,255,255,.38),
+    rgba(255,255,255,.12) 52%,
+    rgba(255,255,255,0)
+  );
+  pointer-events:none;
+  z-index:1;
+}
+.fly-tile::after{display:none}
+.fly-tile .fly-shape,.fly-tile .shape-symbol{z-index:3}
+
+
+/* ===== 半透明亮邊 ===== */
+.cell.tile{
+  outline:1px solid rgba(255,255,255,.28);
+  outline-offset:-1px;
+}
+.cell.tile::before{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.20);
+}
+.fly-tile{
+  outline:1px solid rgba(255,255,255,.30);
+  outline-offset:-1px;
+}
+
 </style>
 </head>
 <body>
@@ -456,8 +531,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const ROWS = 13, COLS = 21, TILE_COUNT = 200, START_TIME = 120;
   const COLORS = [
-    "#ff5f57","#ff9f1c","#ffd93d","#67d34a","#1fc7a6",
-    "#28a9ff","#4d73ff","#9657ff","#e65cff","#ff6fae"
+    "#e53935",  // 紅：較深純紅
+    "#ff8a00",  // 橘
+    "#f3c600",  // 黃
+    "#8bcf18",  // 黃綠
+    "#18b85a",  // 綠
+    "#00b8c8",  // 青
+    "#1687e8",  // 水藍
+    "#3f5bd8",  // 藍紫
+    "#9b42d3",  // 紫
+    "#e12aa8"   // 洋紅：和紅色明顯拉開
   ];
 
   // 每個顏色固定對應一種「鏤空線框」圖形。
@@ -1405,48 +1488,86 @@ document.addEventListener("DOMContentLoaded", () => {
   async function renderLeaderboard(){
     lbTimedBtn.classList.toggle("active",leaderboardMode==="timed");
     lbEndlessBtn.classList.toggle("active",leaderboardMode==="endless");
-
-    if(!onlineConfigured()){
-      onlineStatus.textContent="尚未設定 Supabase。";
-      leaderboardList.innerHTML='<div class="small">完成 Supabase 設定後，這裡會顯示所有玩家的 Top 10。</div>';
-      return;
-    }
-
     onlineStatus.textContent="載入排行榜…";
-    leaderboardList.innerHTML='<div class="small">讀取中…</div>';
 
     try{
-      let order;
-      if(leaderboardMode==="timed"){
-        order="score.desc,elapsed.asc";
-      }else{
-        order="cleared.desc,score.desc,elapsed.asc";
+      // 多抓一些資料，再依暱稱去重，避免前 10 筆被同一個人佔滿。
+      const order = leaderboardMode==="timed"
+        ? "score.desc,elapsed.asc"
+        : "cleared.desc,score.desc,elapsed.asc";
+
+      const rows = await api(
+        `${TABLE}?select=nickname,score,cleared,elapsed,created_at&mode=eq.${leaderboardMode}&order=${encodeURIComponent(order)}&limit=200`
+      );
+
+      // 同名只保留最佳紀錄。
+      // 使用 trim + 小寫做比較，所以 Felix / felix / " Felix " 視為同一名字。
+      const bestByName = new Map();
+
+      for(const row of (rows||[])){
+        const displayName=(row.nickname||"Player").trim() || "Player";
+        const key=displayName.toLocaleLowerCase();
+
+        if(!bestByName.has(key)){
+          bestByName.set(key,{...row,nickname:displayName});
+          continue;
+        }
+
+        const old=bestByName.get(key);
+        let better=false;
+
+        if(leaderboardMode==="timed"){
+          // 120 秒：高分優先；同分時用時較短者優先。
+          if(row.score>old.score) better=true;
+          else if(row.score===old.score && row.elapsed<old.elapsed) better=true;
+        }else{
+          // 無限：已通關優先，再比高分，再比通關/遊玩時間。
+          if(Boolean(row.cleared) && !Boolean(old.cleared)) better=true;
+          else if(Boolean(row.cleared)===Boolean(old.cleared)){
+            if(row.score>old.score) better=true;
+            else if(row.score===old.score && row.elapsed<old.elapsed) better=true;
+          }
+        }
+
+        if(better){
+          bestByName.set(key,{...row,nickname:displayName});
+        }
       }
-      const q=`${SUPABASE_TABLE}?select=nickname,score,cleared,elapsed,created_at&mode=eq.${leaderboardMode}&order=${encodeURIComponent(order)}&limit=10`;
-      const list=await apiRequest(q);
+
+      let list=[...bestByName.values()];
+
+      // 去重後再次排序。
+      if(leaderboardMode==="timed"){
+        list.sort((a,b)=>
+          (b.score-a.score) ||
+          (a.elapsed-b.elapsed)
+        );
+      }else{
+        list.sort((a,b)=>
+          (Number(Boolean(b.cleared))-Number(Boolean(a.cleared))) ||
+          (b.score-a.score) ||
+          (a.elapsed-b.elapsed)
+        );
+      }
+
+      list=list.slice(0,10);
 
       onlineStatus.textContent="✓ 線上排行榜";
-      if(!list || !list.length){
-        leaderboardList.innerHTML='<div class="small">還沒有紀錄，成為第一名吧。</div>';
-        return;
-      }
+      leaderboardList.innerHTML=list.map((x,i)=>`
+        <div class="lb-row">
+          <div>${i+1}</div>
+          <div class="lb-name">${escapeHtml(x.nickname)}</div>
+          <div class="lb-score">${
+            leaderboardMode==="endless" && x.cleared
+              ? "✅ "+Math.floor(x.elapsed/60)+":"+String(Math.floor(x.elapsed%60)).padStart(2,"0")
+              : x.score+" 分"
+          }</div>
+        </div>
+      `).join("") || '<div class="small">還沒有紀錄。</div>';
 
-      leaderboardList.innerHTML=list.map((x,i)=>{
-        let result;
-        if(leaderboardMode==="timed"){
-          result=`${x.score} 分`;
-        }else if(x.cleared){
-          const m=Math.floor(x.elapsed/60), s=Math.floor(x.elapsed%60);
-          result=`✅ ${m}:${String(s).padStart(2,"0")}`;
-        }else{
-          result=`${x.score} 分`;
-        }
-        return `<div class="lb-row"><div class="lb-rank">${i+1}</div><div class="lb-name">${escapeHtml(x.nickname || "Player")}</div><div class="lb-score">${result}</div></div>`;
-      }).join("");
     }catch(e){
+      onlineStatus.textContent="排行榜讀取失敗";
       console.error(e);
-      onlineStatus.textContent="排行榜讀取失敗。";
-      leaderboardList.innerHTML='<div class="small">請檢查 Supabase URL、Anon Key、資料表與 RLS Policy。</div>';
     }
   }
 
