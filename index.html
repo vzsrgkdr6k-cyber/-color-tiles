@@ -531,16 +531,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const ROWS = 13, COLS = 21, TILE_COUNT = 200, START_TIME = 120;
   const COLORS = [
-    "#e53935",  // 紅：較深純紅
+    "#e53935",  // 紅
     "#ff8a00",  // 橘
     "#f3c600",  // 黃
     "#8bcf18",  // 黃綠
     "#18b85a",  // 綠
-    "#00b8c8",  // 青
-    "#1687e8",  // 水藍
-    "#3f5bd8",  // 藍紫
+    "#00c7c7",  // 青：偏青綠，和藍色拉開
+    "#22a7ff",  // 亮藍：更明亮
+    "#2447b8",  // 深藍：更深、更偏靛藍
     "#9b42d3",  // 紫
-    "#e12aa8"   // 洋紅：和紅色明顯拉開
+    "#e12aa8"   // 洋紅
   ];
 
   // 每個顏色固定對應一種「鏤空線框」圖形。
@@ -1496,8 +1496,8 @@ document.addEventListener("DOMContentLoaded", () => {
         ? "score.desc,elapsed.asc"
         : "cleared.desc,score.desc,elapsed.asc";
 
-      const rows = await api(
-        `${TABLE}?select=nickname,score,cleared,elapsed,created_at&mode=eq.${leaderboardMode}&order=${encodeURIComponent(order)}&limit=200`
+      const rows = await apiRequest(
+        `${SUPABASE_TABLE}?select=nickname,score,cleared,elapsed&mode=eq.${leaderboardMode}&order=${encodeURIComponent(order)}&limit=200`
       );
 
       // 同名只保留最佳紀錄。
